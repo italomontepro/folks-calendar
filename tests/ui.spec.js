@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 test('login, event lifecycle, views, automation and mobile embed',async({page})=>{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto('/');await page.getByLabel('Senha de acesso').fill('ui-test-password');await page.getByRole('button',{name:'Entrar na agenda'}).click();
+ await page.goto('/');await page.getByLabel('E-mail',{exact:true}).fill('owner@folks.test');await page.getByLabel('Senha de acesso').fill('ui-test-password');await page.getByRole('button',{name:'Entrar na agenda'}).click();
  await expect(page.getByRole('heading',{name:'Sua agenda, em sintonia.'})).toBeVisible();
  await page.getByRole('button',{name:'Novo evento',exact:true}).click();
  await page.getByLabel('Título do evento').fill('Alinhamento com a equipe');
