@@ -1,0 +1,27 @@
+import {test,expect} from '@playwright/test';
+test('login, event lifecycle, views, automation and mobile embed',async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');await page.getByLabel('Senha de acesso').fill('ui-test-password');await page.getByRole('button',{name:'Entrar na agenda'}).click();
+ await expect(page.getByRole('heading',{name:'Sua agenda, em sintonia.'})).toBeVisible();
+ await page.getByRole('button',{name:'Novo evento',exact:true}).click();
+ await page.getByLabel('Título do evento').fill('Alinhamento com a equipe');
+ await page.getByLabel('Descrição', {exact:true}).fill('Revisar próximos passos do projeto');
+ await page.getByLabel('Contato / ID no CRM').fill('HELENA-42');
+ await page.getByRole('button',{name:'Salvar evento'}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await expect(page.locator('.event-chip').filter({hasText:'Alinhamento com a equipe'})).toBeVisible();
+ await page.reload();await expect(page.locator('.event-chip').filter({hasText:'Alinhamento com a equipe'})).toBeVisible();
+ await page.screenshot({path:'test-results/desktop.png',fullPage:true});
+ await page.getByRole('button',{name:'Semana',exact:true}).click();await expect(page.locator('.time-head button')).toHaveCount(7);
+ await page.getByRole('button',{name:'Dia',exact:true}).click();await expect(page.locator('.time-head button')).toHaveCount(1);
+ await page.getByRole('button',{name:'Mês',exact:true}).click();
+ await page.getByLabel('Buscar eventos').fill('inexistente');await expect(page.locator('.event-chip')).toHaveCount(0);await page.getByLabel('Limpar busca').click();
+ await page.locator('.event-chip').first().click();await page.getByLabel('Título do evento').fill('Alinhamento atualizado');await page.getByRole('button',{name:'Salvar evento'}).click();await expect(page.locator('.event-chip')).toContainText('Alinhamento atualizado');
+ await page.getByRole('button',{name:'Automações',exact:true}).click();await page.getByRole('button',{name:'Nova automação',exact:true}).click();await page.getByLabel('Nome',{exact:true}).fill('Fluxo HELENA');await page.getByLabel('URL do webhook').fill('https://example.com/webhook');await page.getByRole('button',{name:'Salvar automação'}).click();await expect(page.locator('.hook-card')).toContainText('Fluxo HELENA');
+ await page.getByRole('button',{name:'Pausar Fluxo HELENA'}).click();await expect(page.getByRole('button',{name:'Ativar Fluxo HELENA'})).toBeVisible();
+ await page.getByRole('button',{name:'Agenda',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/mobile.png',fullPage:true});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.goto('/?embed=1');await expect(page.locator('.sidebar')).toHaveCount(0);await expect(page.getByRole('button',{name:'Novo evento',exact:true})).toBeVisible();
+ await page.locator('.event-chip').first().click();await page.getByRole('button',{name:'Excluir evento',exact:true}).click();await page.getByRole('button',{name:'Confirmar exclusão'}).click();await expect(page.locator('.event-chip')).toHaveCount(0);
+ expect(errors).toEqual([]);
+});
