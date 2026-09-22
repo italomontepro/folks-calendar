@@ -1,3 +1,4 @@
+export const emailList = value => [...new Set((value || '').split(/[,;]/).map(e => e.trim()).filter(Boolean))];
 export const triggers = ['event.created','event.updated','event.deleted','event.reminder','event.started'];
 export function eventInput(input) {
   if (!input || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 200) throw new Error('Informe um título de até 200 caracteres.');
@@ -8,7 +9,9 @@ export function eventInput(input) {
     if (input[key] !== undefined && typeof input[key] !== 'string') throw new Error('Campo inválido: '+key);
     result[key] = (input[key] || '').slice(0,5000);
   }
-  if (result.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(result.email)) throw new Error('Informe um e-mail válido para convidar no Google Calendar.');
+  const emails = emailList(result.email);
+  if (emails.some(e => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))) throw new Error('Informe e-mails válidos separados por vírgula para convidar no Google Calendar.');
+  result.email = emails.join(', ');
   if (!result.location) result.location = 'A confirmar';
   result.phone = result.phone.replace(/[\s()+.-]/g, '');
   if (result.phone && !/^[1-9]\d{9,14}$/.test(result.phone)) throw new Error('Informe o WhatsApp com código do país e DDD.');

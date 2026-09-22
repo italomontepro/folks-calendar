@@ -7,7 +7,7 @@ import { fail } from './security.js';
 import { openStore } from './store.js';
 import { installIdentity } from './identity.js';
 import { createWorker } from './worker.js';
-import { installGoogle, createGoogleEvent } from './google.js';
+import { installGoogle, createGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from './google.js';
 
 const store = await openStore(resolve(process.env.DATA_DIR || './data'));
 const { db, all, get, put, transaction } = store;
@@ -45,20 +45,28 @@ app.post(base+'/events',edit,async(req,res) => {
   catch (error) { event.googleSyncStatus='error'; event.googleSyncError=error.message; put('events',event,req.workspaceId); }
   res.status(201).json(event);
 });
-app.put(base+'/events/:id',edit,(req,res) => {
+app.put(base+'/events/:id',edit,async(req,res) => {
   const old = get('events',req.params.id,req.workspaceId);
   if (!old) fail(404,'Evento não encontrado.');
   const event = {...old,...eventInput(req.body),updatedAt:new Date().toISOString(),updatedBy:req.user.id};
   validateAutomationFields(event, req.workspaceId);
   if (event.start !== old.start || event.reminder !== old.reminder) event.revision = randomUUID();
   transaction(() => { put('events',event,req.workspaceId); enqueue('event.updated',event,req.workspaceId); });
+  try {
+    const remote = event.googleEventId ? await updateGoogleEvent(db,req.workspaceId,event) : await createGoogleEvent(db,req.workspaceId,event);
+    if (remote?.id) { event.googleEventId=remote.id; event.googleSyncStatus='synced'; delete event.googleSyncError; put('events',event,req.workspaceId); }
+  }
+  catch (error) { event.googleSyncStatus='error'; event.googleSyncError=error.message; put('events',event,req.workspaceId); }
   res.json(event);
 });
-app.delete(base+'/events/:id',edit,(req,res) => {
+app.delete(base+'/events/:id',edit,async(req,res) => {
   const event = get('events',req.params.id,req.workspaceId);
   if (!event) fail(404,'Evento não encontrado.');
+  // Cancela no Google antes de apagar localmente: sem o evento local não há como reagendar a tentativa.
+  let googleError = null;
+  if (event.googleEventId) try { await deleteGoogleEvent(db,req.workspaceId,event); } catch (error) { googleError = error.message; }
   transaction(() => { db.prepare('DELETE FROM events WHERE id=? AND workspace_id=?').run(event.id,req.workspaceId); enqueue('event.deleted',event,req.workspaceId); });
-  res.json({ok:true});
+  res.json({ok:true,googleError});
 });
 app.get(base+'/hooks',admin,(req,res) => res.json(all('hooks',req.workspaceId)));
 app.post(base+'/hooks',admin,async(req,res) => {

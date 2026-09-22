@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { emailList } from './validation.js';
 
 const scope = 'openid email https://www.googleapis.com/auth/calendar.events';
 const cfg = () => ({ id: process.env.GOOGLE_CLIENT_ID, secret: process.env.GOOGLE_CLIENT_SECRET });
@@ -13,16 +14,26 @@ async function accessToken(integration) {
   const body = new URLSearchParams({ client_id:c.id, client_secret:c.secret, refresh_token:integration.refresh_token, grant_type:'refresh_token' });
   return (await jsonFetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body})).access_token;
 }
-export async function createGoogleEvent(db, workspaceId, event) {
-  const integration = db.prepare('SELECT * FROM google_integrations WHERE workspace_id=?').get(workspaceId);
-  if (!integration) return null;
-  const token = await accessToken(integration);
+function eventBody(event) {
   const body = { summary:event.title, description:event.description || '', location:event.location || '' };
   if (event.allDay) { body.start={date:event.start.slice(0,10)}; body.end={date:event.end.slice(0,10)}; }
   else { body.start={dateTime:event.start}; body.end={dateTime:event.end}; }
-  if (event.email) body.attendees = [{ email:event.email }];
-  return jsonFetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(integration.calendar_id)}/events?sendUpdates=all`, { method:'POST', headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  body.attendees = emailList(event.email).map(email => ({ email }));
+  return body;
 }
+async function calendarRequest(db, workspaceId, path, options) {
+  const integration = db.prepare('SELECT * FROM google_integrations WHERE workspace_id=?').get(workspaceId);
+  if (!integration) return null;
+  const token = await accessToken(integration);
+  return jsonFetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(integration.calendar_id)}/events${path}`,
+    { ...options, headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'} });
+}
+export const createGoogleEvent = (db, workspaceId, event) =>
+  calendarRequest(db, workspaceId, '?sendUpdates=all', { method:'POST', body:JSON.stringify(eventBody(event)) });
+export const updateGoogleEvent = (db, workspaceId, event) =>
+  calendarRequest(db, workspaceId, `/${encodeURIComponent(event.googleEventId)}?sendUpdates=all`, { method:'PATCH', body:JSON.stringify(eventBody(event)) });
+export const deleteGoogleEvent = (db, workspaceId, event) =>
+  calendarRequest(db, workspaceId, `/${encodeURIComponent(event.googleEventId)}?sendUpdates=all`, { method:'DELETE' });
 export function installGoogle(app, store, base, admin) {
   const { db } = store;
   app.get(base+'/google', admin, (req,res) => {
