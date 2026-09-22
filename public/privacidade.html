@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Política de Privacidade — Folks Calendar</title>
+<link rel="icon" href="/favicon.svg"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{--purple:#7957dc;--ink:#2b2e38;--muted:#6f6b7d;--border:#eaeaf0}
+*{box-sizing:border-box}
+body{margin:0;background:#f8f9fc;color:var(--ink);font-family:'DM Sans',system-ui,sans-serif;font-size:15px;line-height:1.75}
+main{max-width:760px;margin:auto;padding:56px 24px 80px}
+h1,h2{font-family:Manrope,sans-serif;letter-spacing:-.6px;margin:0}
+h1{font-size:32px}
+h2{font-size:19px;margin:38px 0 12px}
+p,li{color:#43414f}
+a{color:var(--purple)}
+.brand{display:inline-flex;align-items:center;gap:9px;font-family:Manrope,sans-serif;font-weight:800;font-size:19px;letter-spacing:-.7px;margin-bottom:34px}
+.brand span{display:grid;place-items:center;width:30px;height:32px;background:var(--purple);color:#fff;border-radius:9px;font-size:30px;font-style:italic;line-height:1;padding-right:4px}
+.updated{color:var(--muted);font-size:13px;margin-top:10px}
+section{background:#fff;border:1px solid var(--border);border-radius:12px;padding:8px 30px 30px;margin-top:28px}
+ul{padding-left:20px}
+li{margin:7px 0}
+footer{margin-top:34px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><span>f</span>folks calendar</div>
+  <h1>Política de Privacidade</h1>
+  <p class="updated">Última atualização: 22 de setembro de 2026</p>
+
+  <section>
+    <h2>Quem somos</h2>
+    <p>O Folks Calendar é uma agenda compartilhada usada por empresas para organizar compromissos com seus clientes. Cada empresa opera em um espaço isolado, sem acesso aos dados das demais.</p>
+
+    <h2>Dados que coletamos</h2>
+    <ul>
+      <li><strong>Da sua conta:</strong> nome, e-mail e senha (armazenada apenas de forma criptografada, nunca em texto legível).</li>
+      <li><strong>Dos compromissos:</strong> título, data, horário, local, descrição e os dados de contato que você registra no evento, como nome, telefone e e-mails dos convidados.</li>
+      <li><strong>De uso:</strong> registros técnicos de entrega das automações, usados para diagnosticar falhas.</li>
+    </ul>
+
+    <h2>Acesso ao Google Calendar</h2>
+    <p>A conexão com o Google é opcional e parte sempre de uma ação sua. Ao autorizar, solicitamos dois acessos:</p>
+    <ul>
+      <li><code>calendar.events</code> — para criar, atualizar e cancelar na sua agenda do Google os eventos que você registra no Folks Calendar, e para enviar os convites aos participantes que você indicar.</li>
+      <li><code>openid</code> e <code>email</code> — apenas para exibir qual conta está conectada, de modo que você saiba em qual agenda os eventos estão sendo criados.</li>
+    </ul>
+    <p>Guardamos um token de autorização que permite manter a sincronização funcionando sem pedir sua senha novamente. Não temos e nunca recebemos sua senha do Google. Não lemos sua agenda para outros fins: só criamos e alteramos os eventos originados no Folks Calendar.</p>
+
+    <h2>Uso limitado dos dados do Google</h2>
+    <p>O uso que o Folks Calendar faz das informações recebidas das APIs do Google segue a <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado. Os dados obtidos do Google são usados exclusivamente para operar a sincronização de agenda descrita acima. Não os usamos para publicidade, não os vendemos e não os transferimos a terceiros, exceto quando necessário para operar o serviço, por exigência legal ou com o seu consentimento explícito.</p>
+
+    <h2>Compartilhamento</h2>
+    <p>Não vendemos seus dados. As informações de um compromisso são enviadas apenas para os destinos que você configurou: o Google Calendar, quando conectado, e as automações de mensagem que você mesmo cadastrou.</p>
+
+    <h2>Retenção e exclusão</h2>
+    <p>Os dados permanecem enquanto a conta estiver ativa. Você pode desconectar o Google a qualquer momento pelo botão <strong>Desconectar</strong> na tela de automações, o que apaga o token de autorização dos nossos servidores imediatamente. Também é possível revogar o acesso diretamente em <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>. Para excluir sua conta e os dados associados, fale conosco pelo contato abaixo.</p>
+
+    <h2>Segurança</h2>
+    <p>O acesso é protegido por login individual e permissões por espaço de trabalho. As credenciais de integração ficam restritas ao servidor e não são expostas na interface.</p>
+
+    <h2>Contato</h2>
+    <p>Dúvidas sobre esta política ou sobre seus dados: <a href="mailto:suporte.folkscomp@gmail.com">suporte.folkscomp@gmail.com</a>.</p>
+  </section>
+
+  <footer>Folks Calendar — <a href="/termos">Termos de Serviço</a></footer>
+</main>
+</body>
+</html>

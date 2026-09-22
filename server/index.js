@@ -116,6 +116,7 @@ app.get(base+'/deliveries',admin,(req,res) => res.json(db.prepare('SELECT id,hoo
 const timer = setInterval(() => tick().catch(console.error),5000);timer.unref();
 app.use('/api',(_req,res) => res.status(404).json({error:'Rota não encontrada.'}));
 app.use(express.static(resolve('dist')));
+for (const page of ['privacidade','termos']) app.get('/'+page,(_req,res) => res.sendFile(resolve('dist/'+page+'.html')));
 app.get('/{*path}',(_req,res) => res.sendFile(resolve('dist/index.html')));
 app.use((err,_req,res,_next) => {
   const status = err.status || (err.code?.startsWith('ERR_SQLITE') ? 500 : 400);
