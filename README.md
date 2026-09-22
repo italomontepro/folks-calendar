@@ -110,7 +110,7 @@ A migração é transacional e executada uma única vez (`PRAGMA user_version=2`
         style="border:0" allow="clipboard-write"></iframe>
 ```
 
-A integração dentro da conta HELENA precisa ser validada no ambiente real. Esta aplicação fornece a página incorporável e webhooks genéricos; não pressupõe endpoints, API ou autenticação específicos do HELENA. Para acionar fluxos do CRM, use o receptor de webhook disponibilizado pelo fluxo ou um intermediário, como n8n/Make. Não há sincronização automática com eventos nativos do CRM.
+A integração dentro da conta HELENA precisa ser validada no ambiente real. Além da página incorporável e dos webhooks genéricos, esta aplicação envia modelos aprovados diretamente pela API do HELENA, sem intermediário. Configure a conexão em Automações → Mensagens pelo HELENA. Não há sincronização automática com eventos nativos do CRM.
 
 ## Webhooks
 
@@ -173,3 +173,20 @@ npm run build
 Os testes de API verificam autenticação, validação, bloqueio de destinos privados, persistência, CRUD, fila, cancelamento, disparos agendados, migração legada, isolamento entre clientes, tentativas de acessar IDs alheios, perfis, convites, revogação e reinicialização. O teste de navegador cobre login, criação/edição/exclusão, persistência após recarga, três visualizações, busca, cadastro/pausa de automação e modo incorporado no celular. Também testa criação de cliente, convite, acesso somente leitura, troca de perfil, remoção de acesso e incorporação de um workspace. Usa banco separado em `test-results/`.
 
 Referências técnicas: [Vite](https://vite.dev/guide/) e [SQLite no Node.js](https://nodejs.org/api/sqlite.html).
+
+
+## Mensagens diretas pelo HELENA
+
+Em **Automações → Mensagens pelo HELENA**, conecte o token **da conta** (Ajustes → Integrações no HELENA). O servidor consulta canais oficiais ativos e modelos aprovados. Cada workspace tem sua própria conexão; o token permanece no banco da VPS, protegido pelas permissões do volume, e não é retornado ao navegador nem incluído nos registros de envio. Backups contêm a credencial e devem manter acesso restrito.
+
+Crie uma regra, escolha canal, modelo, destinatário (cliente ou responsável), gatilhos e agenda. Mapeie as variáveis do modelo para textos fixos ou `{{nome}}`, `{{responsavel}}`, `{{titulo}}`, `{{data}}`, `{{hora}}`, `{{fim}}`, `{{local}}`, `{{descricao}}`, `{{email}}`, `{{contato}}`, `{{telefone}}`. Datas/horários usam o fuso escolhido na regra. Modelos com mídia exigem URL HTTPS ou ID do arquivo. A aprovação e o conteúdo dos modelos continuam sendo gerenciados no HELENA.
+
+Preencha o nome e o WhatsApp com código do país e DDD no evento. O campo Contato/ID no CRM continua disponível, mas o destino das mensagens é o campo WhatsApp. Desmarque **Permitir mensagens automáticas neste evento** para suprimir os envios. Todos os eventos da agenda selecionada participam das regras ativas; não há escolha de um modelo individual por evento.
+
+Cada regra de lembrete tem sua própria antecedência (5, 15, 30, 60, 120 ou 1440 minutos), permitindo avisos de 24h e 2h para o mesmo compromisso. O seletor de lembrete por webhook no evento continua controlando somente webhooks genéricos. Lembretes HELENA vencidos antes da ativação da regra não são enviados. Após interrupções, a tolerância é de uma hora e lembretes nunca são enviados após o início do evento. Alterar o início rearma os gatilhos; editar texto não rearma. Pausar, excluir ou editar uma regra cancela seus envios pendentes; reativar não reproduz envios antigos.
+
+O histórico mostra **Aceito pelo HELENA** quando a API aceita o envio. Use **Consultar entrega** para atualizar o status no provedor. Aceitação não significa entrega no WhatsApp. Falhas definitivas não são repetidas; HTTP 429 permite até cinco tentativas. Timeout, HTTP 5xx ou interrupção durante envio ficam em **Conferir no HELENA**, sem reenvio automático, pois a API não documenta uma garantia de idempotência para `senderId`. Esse campo recebe o ID da entrega para rastreamento. Webhooks genéricos mantêm a política de cinco tentativas.
+
+Trocar/desconectar o token pausa as regras HELENA e cancela pendências. Revise o canal e o modelo antes de reativar; isso evita usar dados de uma conta em outra. Envios já iniciados podem terminar. A migração para schema 3 cria backup antes de adicionar conexões e informações de envio, preservando usuários, workspaces, eventos e webhooks existentes.
+
+Referências: [autenticação](https://flwchat.readme.io/reference/getting-started-with-your-api), [modelos](https://flwchat.readme.io/reference/get_v1-template), [envio de template](https://flwchat.readme.io/reference/post_v1-send-template), [consulta de envio](https://flwchat.readme.io/reference/get_v1-send-message-id). Origem da API: `https://api.wts.chat/chat/v1/`.

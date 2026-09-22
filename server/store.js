@@ -1,7 +1,7 @@
 import { DatabaseSync, backup } from 'node:sqlite';
 import { mkdirSync, existsSync, chmodSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { emailInput, hashPassword, newToken, passwordInput } from './security.js';
 
 export async function openStore(dataDir) {
@@ -64,6 +64,36 @@ export async function openStore(dataDir) {
       writeFileSync(credentials, `Login: ${email}\nSenha: ${initialPassword}\n`, { mode: 0o600 });
       console.log('Acesso inicial de desenvolvimento salvo em:', credentials);
     }
+  }
+  if (version < 3) {
+    if (existed) {
+      const target = resolve(dataDir, `backup-before-helena-${Date.now()}.sqlite`);
+      await backup(db, target); chmodSync(target, 0o600);
+    }
+    transaction(() => {
+      db.exec(`CREATE TABLE integrations (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), token TEXT NOT NULL, revision TEXT NOT NULL);
+        ALTER TABLE jobs ADD COLUMN provider_id TEXT;
+        ALTER TABLE jobs ADD COLUMN provider_status TEXT;
+        ALTER TABLE jobs ADD COLUMN integration_revision TEXT;
+        PRAGMA user_version=3;`);
+    });
+  }
+  if (version < 4) {
+    transaction(() => {
+      db.exec('ALTER TABLE integrations ADD COLUMN webhook_secret TEXT; ALTER TABLE integrations ADD COLUMN reschedule_department_id TEXT; PRAGMA user_version=4;');
+      const secret = () => randomBytes(32).toString('base64url');
+      for (const row of db.prepare('SELECT workspace_id FROM integrations').all()) {
+        db.prepare('UPDATE integrations SET webhook_secret=?,reschedule_department_id=? WHERE workspace_id=?')
+          .run(secret(), '1f08f5c8-c4ae-4730-b820-871e7d8af275', row.workspace_id);
+      }
+    });
+  }
+  if (version < 5) {
+    transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS google_integrations (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), refresh_token TEXT NOT NULL, calendar_id TEXT NOT NULL DEFAULT 'primary', account_email TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS google_oauth_states (state TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), user_id TEXT NOT NULL REFERENCES users(id), expires INTEGER NOT NULL);
+        PRAGMA user_version=4;`);
+    });
   }
   const parseRow = row => row ? { ...JSON.parse(row.body), workspaceId: row.workspace_id } : null;
   const all = (table, workspaceId) => {

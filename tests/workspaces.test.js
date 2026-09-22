@@ -28,7 +28,7 @@ test('migrates legacy data once, backs up, and requires individual login',async(
  assert.equal((await api(path(wsA,'/events'))).body[0].workspaceId,wsA);
  assert.equal((await api(path(wsA,'/hooks'))).body[0].secret,'preserve-this-secret');
  assert.equal((await api(path(wsA,'/deliveries'))).body[0].id,'legacy-job');
- const db=new DatabaseSync(dbPath);assert.equal(db.prepare('PRAGMA user_version').get().user_version,2);assert.equal(db.prepare('SELECT count(*) n FROM fired').get().n,1);assert.equal(db.prepare('SELECT workspace_id FROM jobs').get().workspace_id,wsA);assert.equal(JSON.parse(db.prepare('SELECT payload FROM jobs').get().payload).workspaceId,wsA);db.close();
+ const db=new DatabaseSync(dbPath);assert.equal(db.prepare('PRAGMA user_version').get().user_version,4);assert.equal(db.prepare('SELECT count(*) n FROM fired').get().n,1);assert.equal(db.prepare('SELECT workspace_id FROM jobs').get().workspace_id,wsA);assert.equal(JSON.parse(db.prepare('SELECT payload FROM jobs').get().payload).workspaceId,wsA);db.close();
  assert.equal(readdirSync(dir).filter(f=>f.startsWith('backup-before-workspaces')).length,1);
  assert.equal((await api('/events')).status,404);
  assert.equal((await api(path(wsA,'/events'),{token:'9999999999999.fake-legacy-signature'})).status,401);
@@ -54,7 +54,7 @@ test('enforces viewer/editor/admin permissions and blocks escalation',async()=>{
  for(const method of ['POST','PUT','DELETE']){const suffix=method==='POST'?'/events':'/events/'+eventA.id;assert.equal((await api(path(wsA,suffix),{token:viewer.token,method,body:future})).status,403);}
  assert.equal((await api(path(wsA,'/events/'+eventA.id),{token:editor.token,method:'PUT',body:{...future,title:'Editado'}})).status,200);
  for(const token of [editor.token,viewer.token]){
-  for(const suffix of ['/hooks','/deliveries','/members'])assert.equal((await api(path(wsA,suffix),{token})).status,403);
+  for(const suffix of ['/hooks','/deliveries','/members','/helena','/helena/channels','/helena/templates'])assert.equal((await api(path(wsA,suffix),{token})).status,403);
   assert.equal((await api(path(wsA,'/invites'),{token,method:'POST',body:{email:'x@folks.test',role:'admin'}})).status,403);
   assert.equal((await api(path(wsA),{token,method:'PATCH',body:{name:'Hacked'}})).status,403);
  }

@@ -16,7 +16,12 @@ export async function installIdentity(app, store) {
     if (!/^[\w-]{43}$/.test(token)) return null;
     return db.prepare('SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token_hash=? AND s.expires>?').get(digest(token), Date.now());
   }
-  function requireUser(req,_res,next) { req.user = sessionUser(req); if (!req.user) fail(401, 'Entre com seu e-mail e senha.'); next(); }
+  function requireUser(req,_res,next) {
+    // HELENA calls this endpoint server-to-server and authenticates with the
+    // workspace-specific secret in the URL instead of a calendar session.
+    if (req.path.startsWith('/helena/webhook/')) return next();
+    req.user = sessionUser(req); if (!req.user) fail(401, 'Entre com seu e-mail e senha.'); next();
+  }
   function issueSession(user) {
     const token = newToken();
     db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(digest(token), user.id, Date.now()+12*3600000);
