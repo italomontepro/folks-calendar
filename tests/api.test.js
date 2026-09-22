@@ -18,3 +18,13 @@ test('persists webhook, creates event and queues delivery transactionally',async
 test('updates and deletes events with corresponding deliveries',async()=>{assert.equal((await request('/events/'+event.id,'PUT',{...event,title:'Novo título'})).body.title,'Novo título');assert.equal((await request('/events/'+event.id,'DELETE')).status,200);assert.equal((await request('/events')).body.length,0);assert.deepEqual(new Set((await request('/deliveries')).body.map(x=>x.type)),new Set(['event.created','event.updated','event.deleted']));assert.equal((await request('/events/'+event.id,'PUT',event)).status,404);});
 test('pausing disables tests; deleting cancels pending jobs',async()=>{await request('/hooks/'+hook.id,'PUT',{...hook,enabled:false});assert.equal((await request('/hooks/'+hook.id+'/test','POST')).status,400);await request('/hooks/'+hook.id,'DELETE');assert.equal((await request('/hooks')).body.length,0);assert.ok((await request('/deliveries')).body.every(j=>j.status==='cancelled'));});
 test('scheduled reminders and start trigger persist only once',async()=>{const h=(await request('/hooks','POST',{name:'Scheduled',url:'https://127.0.0.1',triggers:['event.reminder','event.started']})).body;await request('/events','POST',{title:'Agora',start:new Date(Date.now()-1000).toISOString(),end:new Date(Date.now()+3600000).toISOString(),reminder:15});await new Promise(r=>setTimeout(r,11000));const jobs=(await request('/deliveries')).body.filter(j=>j.hook===h.id);assert.equal(jobs.length,2);assert.deepEqual(new Set(jobs.map(j=>j.type)),new Set(['event.reminder','event.started']));assert.ok(jobs.every(j=>j.error?.includes('privados')));});
+test('retrying the Google sync is scoped to an existing event and never re-fires webhooks',async()=>{
+ const created=(await request('/events','POST',{title:'Para ressincronizar',start:'2030-02-01T10:00:00-04:00',end:'2030-02-01T11:00:00-04:00'})).body;
+ const before=(await request('/deliveries')).body.length;
+ // Sem integração ativa a retentativa é inócua, mas precisa responder e não duplicar entregas.
+ const retried=await request('/events/'+created.id+'/google-sync','POST');
+ assert.equal(retried.status,200);
+ assert.equal(retried.body.id,created.id);
+ assert.equal((await request('/deliveries')).body.length,before);
+ assert.equal((await request('/events/00000000-0000-4000-8000-000000000000/google-sync','POST')).status,404);
+});

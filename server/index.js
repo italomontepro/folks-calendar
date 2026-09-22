@@ -36,13 +36,22 @@ function validateAutomationFields(event, workspaceId) {
   if (rules.some(h => h.recipient !== 'assignee') && (!event.contactName || !event.phone)) fail(400, 'Para enviar ao cliente, informe o nome e o WhatsApp com DDI (ex.: 5592984532273).');
   if (rules.some(h => h.recipient === 'assignee') && (!event.assigneeName || !event.assigneePhone)) fail(400, 'Para notificar o responsável, informe nome e WhatsApp do responsável com DDI.');
 }
+async function syncToGoogle(event, workspaceId) {
+  try {
+    const remote = event.googleEventId ? await updateGoogleEvent(db,workspaceId,event) : await createGoogleEvent(db,workspaceId,event);
+    if (!remote?.id) return event;
+    event.googleEventId=remote.id; event.googleSyncStatus='synced'; delete event.googleSyncError;
+  }
+  catch (error) { event.googleSyncStatus='error'; event.googleSyncError=error.message; }
+  put('events',event,workspaceId);
+  return event;
+}
 app.get(base+'/events',(req,res) => res.json(all('events',req.workspaceId)));
 app.post(base+'/events',edit,async(req,res) => {
   const event = {...eventInput(req.body),id:randomUUID(),revision:randomUUID(),createdAt:new Date().toISOString(),createdBy:req.user.id,workspaceId:req.workspaceId};
   validateAutomationFields(event, req.workspaceId);
   transaction(() => { put('events',event,req.workspaceId); enqueue('event.created',event,req.workspaceId); });
-  try { const remote = await createGoogleEvent(db, req.workspaceId, event); if (remote?.id) { event.googleEventId=remote.id; event.googleSyncStatus='synced'; put('events',event,req.workspaceId); } }
-  catch (error) { event.googleSyncStatus='error'; event.googleSyncError=error.message; put('events',event,req.workspaceId); }
+  await syncToGoogle(event, req.workspaceId);
   res.status(201).json(event);
 });
 app.put(base+'/events/:id',edit,async(req,res) => {
@@ -52,11 +61,7 @@ app.put(base+'/events/:id',edit,async(req,res) => {
   validateAutomationFields(event, req.workspaceId);
   if (event.start !== old.start || event.reminder !== old.reminder) event.revision = randomUUID();
   transaction(() => { put('events',event,req.workspaceId); enqueue('event.updated',event,req.workspaceId); });
-  try {
-    const remote = event.googleEventId ? await updateGoogleEvent(db,req.workspaceId,event) : await createGoogleEvent(db,req.workspaceId,event);
-    if (remote?.id) { event.googleEventId=remote.id; event.googleSyncStatus='synced'; delete event.googleSyncError; put('events',event,req.workspaceId); }
-  }
-  catch (error) { event.googleSyncStatus='error'; event.googleSyncError=error.message; put('events',event,req.workspaceId); }
+  await syncToGoogle(event, req.workspaceId);
   res.json(event);
 });
 app.delete(base+'/events/:id',edit,async(req,res) => {
@@ -67,6 +72,13 @@ app.delete(base+'/events/:id',edit,async(req,res) => {
   if (event.googleEventId) try { await deleteGoogleEvent(db,req.workspaceId,event); } catch (error) { googleError = error.message; }
   transaction(() => { db.prepare('DELETE FROM events WHERE id=? AND workspace_id=?').run(event.id,req.workspaceId); enqueue('event.deleted',event,req.workspaceId); });
   res.json({ok:true,googleError});
+});
+app.post(base+'/events/:id/google-sync',edit,async(req,res) => {
+  const event = get('events',req.params.id,req.workspaceId);
+  if (!event) fail(404,'Evento não encontrado.');
+  // Retenta apenas o Google: os webhooks da ação original já foram entregues e não devem repetir.
+  await syncToGoogle(event, req.workspaceId);
+  res.json(event);
 });
 app.get(base+'/hooks',admin,(req,res) => res.json(all('hooks',req.workspaceId)));
 app.post(base+'/hooks',admin,async(req,res) => {
