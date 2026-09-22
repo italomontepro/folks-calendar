@@ -20,6 +20,10 @@ export async function installIdentity(app, store) {
     // HELENA calls this endpoint server-to-server and authenticates with the
     // workspace-specific secret in the URL instead of a calendar session.
     if (req.path.startsWith('/helena/webhook/')) return next();
+    // O Google devolve o usuário aqui por redirecionamento de navegador, sem
+    // header de sessão; quem autentica a requisição é o parâmetro state, que o
+    // handler confere contra google_oauth_states antes de gravar qualquer token.
+    if (req.path === '/google/callback') return next();
     req.user = sessionUser(req); if (!req.user) fail(401, 'Entre com seu e-mail e senha.'); next();
   }
   function issueSession(user) {

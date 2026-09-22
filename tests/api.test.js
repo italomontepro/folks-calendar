@@ -28,3 +28,10 @@ test('retrying the Google sync is scoped to an existing event and never re-fires
  assert.equal((await request('/deliveries')).body.length,before);
  assert.equal((await request('/events/00000000-0000-4000-8000-000000000000/google-sync','POST')).status,404);
 });
+test('the Google callback is reachable without a session but still requires a valid state',async()=>{
+ // O Google redireciona o navegador para cá sem header de sessão: se o middleware
+ // barrar, a conexão morre com 401 antes de o state ser conferido.
+ const r=await fetch('http://127.0.0.1:3099/api/google/callback?state=forjado&code=x',{redirect:'manual'});
+ assert.notEqual(r.status,401);
+ assert.equal((await r.json()).error,'Autorização Google inválida ou expirada.');
+});
