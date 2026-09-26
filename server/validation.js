@@ -30,7 +30,11 @@ export function hookInput(input) {
   if (!['webhook','helena'].includes(kind)) throw new Error('Tipo de automação inválido.');
   const common = {kind,name:input.name.trim(),triggers:[...new Set(input.triggers)],enabled:input.enabled !== false};
   if (kind === 'helena') {
-    for (const key of ['channelId','templateId']) if (typeof input[key] !== 'string' || !/^[a-f0-9-]{36}$/i.test(input[key])) throw new Error('Selecione o canal e o modelo aprovado.');
+    if (typeof input.channelId !== 'string' || !/^[a-f0-9-]{36}$/i.test(input.channelId)) throw new Error('Selecione o canal e o modelo aprovado.');
+    // HELENA template IDs are not always UUIDs. Imported Meta templates can
+    // use a short slug such as "relatorio"; keep the field bounded and reject
+    // control characters while allowing the identifier returned by the API.
+    if (typeof input.templateId !== 'string' || !/^[^\u0000-\u001f\u007f]{1,200}$/.test(input.templateId.trim())) throw new Error('Selecione o canal e o modelo aprovado.');
     const timezone = input.timezone || 'America/Manaus';
     try { new Intl.DateTimeFormat('pt-BR',{timeZone:timezone}).format(); } catch { throw new Error('Fuso horário inválido.'); }
     const parameters = input.parameters || {};

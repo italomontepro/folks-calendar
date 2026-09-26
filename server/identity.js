@@ -113,7 +113,7 @@ export async function installIdentity(app, store) {
   });
   app.get('/api/workspaces',(req,res) => res.json(workspaces(req.user)));
   app.post('/api/workspaces',(req,res) => {
-    if (!req.user.is_owner) fail(403, 'Somente a administração Folks pode criar workspaces.');
+    if (!req.user.is_owner) fail(403, 'Somente a administração FolkSales pode criar workspaces.');
     const id = randomUUID(), name = nameInput(req.body?.name), created = new Date().toISOString();
     const origins = originsInput(req.body?.origins);
     transaction(() => {
@@ -153,7 +153,7 @@ export async function installIdentity(app, store) {
   function memberTarget(req) {
     const user = db.prepare('SELECT u.* FROM users u JOIN memberships m ON u.id=m.user_id WHERE m.workspace_id=? AND u.id=?').get(req.workspaceId,req.params.userId);
     if (!user) fail(404,'Membro não encontrado.');
-    if (user.is_owner || user.id === req.user.id) fail(403,'Você não pode alterar seu próprio acesso ou o da administração Folks.');
+    if (user.is_owner || user.id === req.user.id) fail(403,'Você não pode alterar seu próprio acesso ou o da administração FolkSales.');
     return user;
   }
   app.patch('/api/workspaces/:workspaceId/members/:userId',admin,(req,res) => {

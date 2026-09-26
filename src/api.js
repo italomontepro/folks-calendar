@@ -11,5 +11,5 @@ export async function request(path, options = {}) {
   }
   return data;
 }
-export const roleNames = { owner:'Administrador Folks', admin:'Administrador', editor:'Editor', viewer:'Somente leitura' };
+export const roleNames = { owner:'Administrador FolkSales', admin:'Administrador', editor:'Editor', viewer:'Somente leitura' };
 export const workspaceLink = (id, embed=false) => `${location.origin}/?workspace=${encodeURIComponent(id)}${embed?'&embed=1':''}`;

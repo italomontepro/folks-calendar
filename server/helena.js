@@ -29,6 +29,34 @@ async function helenaPut(token, path, body) {
   return response.json();
 }
 export const getIntegration = (db, workspaceId) => db.prepare('SELECT * FROM integrations WHERE workspace_id=?').get(workspaceId);
+
+const REPORT_BUTTON = 'Verificar Relatório';
+const buttonKeys = /(button|interactive|postback|quick_?reply|reply)/i;
+function normalizedText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// The HELENA webhook has delivered this button as nested interactive data and
+// as a plain message in different channel versions. Accept both forms, but do
+// not treat an arbitrary sentence containing the label as a click.
+export function isReportButton(payload, label = REPORT_BUTTON) {
+  const target = normalizedText(label);
+  if (!target) return false;
+  const seen = new Set();
+  function walk(value, insideButton, depth) {
+    if (depth > 8 || value == null) return false;
+    if (typeof value === 'string') {
+      const text = normalizedText(value);
+      return insideButton ? text.includes(target) : text === target;
+    }
+    if (typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) return value.some(item => walk(item, insideButton, depth + 1));
+    return Object.entries(value).some(([key, child]) => walk(child, insideButton || buttonKeys.test(key), depth + 1));
+  }
+  return walk(payload, false, 0);
+}
+
 export async function channels(token, request = helenaRequest) {
   const result = await request(token,'channel?ChannelType=Whatsapp');
   if (!Array.isArray(result)) throw new Error('Lista de canais inválida.');
@@ -72,6 +100,7 @@ export function templateBody(hook, event, deliveryId) {
 export function installHelena(app, store, base, admin) {
   const {db,transaction}=store;
   const integration = workspaceId => {const value=getIntegration(db,workspaceId);if(!value)fail(400,'Conecte o HELENA primeiro.');return value;};
+  const integrationWebhookUrl = (req, config) => config?.webhook_secret ? `${(process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/,'')}/api/helena/webhook/${config.webhook_secret}` : null;
   app.post('/api/helena/webhook/:secret', async (req,res) => {
     const integration=db.prepare('SELECT * FROM integrations WHERE webhook_secret=?').get(req.params.secret);
     if (!integration) return res.status(404).json({error:'Webhook não encontrado.'});
@@ -87,6 +116,15 @@ export function installHelena(app, store, base, admin) {
     const phone=(find(['phonenumber','phonenumberformatted','phone','to','contactphonenumber'])||'').replace(/[^0-9]/g,'');
     if (!sessionId) return;
     const workspaceId=integration.workspace_id;
+    if (isReportButton(body)) {
+      try {
+        const { sendMessageReport } = await import('./report.js');
+        await sendMessageReport(db, workspaceId, { to: phone, sessionId });
+      } catch (error) {
+        console.error('HELENA report message:', error.message);
+      }
+      return;
+    }
     const events=store.all('events',workspaceId).filter(event=>{
       const eventPhone=(event.phone || '').replace(/[^0-9]/g,'');
       return eventPhone && phone && eventPhone===phone && Date.parse(event.start)>Date.now()-48*3600000;
@@ -99,7 +137,7 @@ export function installHelena(app, store, base, admin) {
       }
     } catch (error) { console.error('HELENA webhook action:',error.message); }
   });
-  app.get(base+'/helena',admin,(req,res)=>res.json({connected:!!getIntegration(db,req.workspaceId),webhookConfigured:!!getIntegration(db,req.workspaceId)?.webhook_secret}));
+  app.get(base+'/helena',admin,(req,res)=>{const config=getIntegration(db,req.workspaceId);res.json({connected:!!config,webhookConfigured:!!config?.webhook_secret,webhookUrl:integrationWebhookUrl(req,config)});});
   app.put(base+'/helena',admin,async(req,res)=>{
     const token=typeof req.body.token==='string'?req.body.token.trim().replace(/^Bearer\s+/i,''):'';
     if(token.length<20 || token.length>4096 || /\s/.test(token)) fail(400,'Informe o token da conta HELENA.');
@@ -114,8 +152,8 @@ export function installHelena(app, store, base, admin) {
       }
     });
     const config=getIntegration(db,req.workspaceId), webhookUrl=`${req.protocol}://${req.get('host')}/api/helena/webhook/${config.webhook_secret}`;
-    try { await helenaRequest(token,'webhook/subscription',{name:'Folks Calendar — respostas de agendamento',url:webhookUrl,enabled:true,events:['MESSAGE_RECEIVED']}); } catch (error) { console.error('HELENA webhook subscription:',error.message); }
-    res.json({connected:true,channels:available});
+    try { await helenaRequest(token,'webhook/subscription',{name:'FolkSales — respostas de agendamento',url:webhookUrl,enabled:true,events:['MESSAGE_RECEIVED']}); } catch (error) { console.error('HELENA webhook subscription:',error.message); }
+    res.json({connected:true,channels:available,webhookUrl:integrationWebhookUrl(req,config)});
   });
   app.delete(base+'/helena',admin,(req,res)=>{
     transaction(()=>{

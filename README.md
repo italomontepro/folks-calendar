@@ -1,4 +1,6 @@
-# Folks Calendar
+# FolkSales
+
+Agenda, automações e resultados em um só lugar.
 
 Agenda com workspaces isolados por cliente, contas individuais e visualizações de mês, semana e dia, eventos persistidos em SQLite e automações por webhook. Interface em português, responsiva e com modo de incorporação para o CRM HELENA.
 
@@ -24,6 +26,8 @@ Abra http://localhost:5173. O login individual é obrigatório em todos os ambie
 - Gerenciamento de membros e origens HTTPS do HELENA por workspace.
 - Webhooks configuráveis, ativação/pausa, teste e histórico dos últimos 100 disparos.
 - Atualização dos dados a cada 15 segundos.
+- Relatório de Atendimento e Vendas do HELENA em `/relatorio?workspace=ID`, com filtro mensal, por equipe e por atendente. A consulta usa o token já vinculado ao workspace, exige o mesmo login da agenda e atualiza o cache do servidor a cada 15 minutos enquanto o relatório estiver em uso. A página verifica atualizações a cada 5 minutos e mostra a data da última coleta.
+- O clique no botão `Verificar Relatório` do modelo HELENA `relatorio` responde na mesma conversa com um resumo em texto: de segunda a sábado, o período do dia (00:00–20:00 em Manaus); no domingo, o consolidado de segunda a sábado.
 - Autenticação por e-mail e senha individual (hash scrypt), sessões revogáveis de 12 horas guardadas por aba e limite de tentativas.
 - Troca de senha encerra todas as sessões da pessoa. Sair revoga a sessão atual.
 - Modo `/?workspace=ID&embed=1`, com navegação compacta e autorização por workspace.
@@ -61,7 +65,7 @@ docker run -d --name folks-calendar --restart unless-stopped \
   -v folks-calendar-data:/app/data folks-calendar
 ```
 
-O volume preserva os eventos, as configurações e a fila nas atualizações. Não exponha a porta sem HTTPS em produção. O isolamento é lógico no mesmo banco: eventos, webhooks e entregas possuem `workspace_id`, validado no servidor. Apenas a administração Folks acessa todos os clientes. O banco físico e os backups continuam compartilhados; não existe banco separado por cliente. Mantenha uma réplica e `zeroDowntime=false` no EasyPanel para evitar dois workers simultâneos durante deploys.
+O volume preserva os eventos, as configurações e a fila nas atualizações. Não exponha a porta sem HTTPS em produção. O isolamento é lógico no mesmo banco: eventos, webhooks e entregas possuem `workspace_id`, validado no servidor. Apenas a administração FolkSales acessa todos os clientes. O banco físico e os backups continuam compartilhados; não existe banco separado por cliente. Mantenha uma réplica e `zeroDowntime=false` no EasyPanel para evitar dois workers simultâneos durante deploys.
 
 ## Workspaces e acesso
 
@@ -106,7 +110,7 @@ A migração é transacional e executada uma única vez (`PRAGMA user_version=2`
 
 ```html
 <iframe src="https://seu-dominio.com/?workspace=ID&embed=1"
-        title="Folks Calendar" width="100%" height="900"
+        title="FolkSales" width="100%" height="900"
         style="border:0" allow="clipboard-write"></iframe>
 ```
 

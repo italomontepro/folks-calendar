@@ -8,6 +8,7 @@ import { openStore } from './store.js';
 import { installIdentity } from './identity.js';
 import { createWorker } from './worker.js';
 import { installGoogle, createGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from './google.js';
+import { installReport } from './report.js';
 
 const store = await openStore(resolve(process.env.DATA_DIR || './data'));
 const { db, all, get, put, transaction } = store;
@@ -31,6 +32,7 @@ const edit = requireRoles('owner','admin','editor');
 const base = '/api/workspaces/:workspaceId';
 installHelena(app,store,base,admin);
 installGoogle(app,store,base,admin);
+const stopReport = installReport(app,db,base);
 function validateAutomationFields(event, workspaceId) {
   const rules = all('hooks', workspaceId).filter(h => h.kind === 'helena' && h.enabled);
   if (rules.some(h => h.recipient !== 'assignee') && (!event.contactName || !event.phone)) fail(400, 'Para enviar ao cliente, informe o nome e o WhatsApp com DDI (ex.: 5592984532273).');
@@ -110,7 +112,7 @@ app.post(base+'/hooks/:id/test',admin,(req,res) => {
   if (!hook) fail(404,'Automação não encontrada.');
   if (hook.kind==='helena') fail(400,'Para conferir a conexão, carregue os modelos. Testes de webhook não enviam mensagens.');
   if (!hook.enabled) fail(400,'Ative a automação antes de testar.');
-  enqueue('webhook.test',{message:'Olá do Folks Calendar!'},req.workspaceId,hook.id);res.json({ok:true});
+  enqueue('webhook.test',{message:'Olá do FolkSales!'},req.workspaceId,hook.id);res.json({ok:true});
 });
 app.get(base+'/deliveries',admin,(req,res) => res.json(db.prepare('SELECT id,hook,attempts,status,error,created,payload,provider_id,provider_status FROM jobs WHERE workspace_id=? ORDER BY created DESC LIMIT 100').all(req.workspaceId).map(j=>({...j,type:JSON.parse(j.payload).type,payload:undefined}))));
 const timer = setInterval(() => tick().catch(console.error),5000);timer.unref();
@@ -124,4 +126,4 @@ app.use((err,_req,res,_next) => {
   res.status(status).json({error:status>=500?'Não foi possível concluir a operação.':err.message||'Requisição inválida.'});
 });
 const server = app.listen(Number(process.env.PORT||3001),'0.0.0.0',()=>console.log(`Folks Calendar: http://localhost:${process.env.PORT||3001}`));
-process.on('SIGTERM',()=>{clearInterval(timer);server.close(()=>process.exit(0));});
+process.on('SIGTERM',()=>{clearInterval(timer);stopReport();server.close(()=>process.exit(0));});

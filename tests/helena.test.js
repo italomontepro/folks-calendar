@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {openStore} from '../server/store.js';
 import {createWorker} from '../server/worker.js';
-import {channels,templates,templateBody,helenaRequest} from '../server/helena.js';
+import {channels,templates,templateBody,helenaRequest,isReportButton} from '../server/helena.js';
 import {hookInput,eventInput} from '../server/validation.js';
 async function fixture(fn) {
  const dir=mkdtempSync(join(tmpdir(),'folks-helena-')),store=await openStore(dir),workspace=store.db.prepare('SELECT id FROM workspaces').get().id;
@@ -18,6 +18,11 @@ test('normalizes actual HELENA channel and template responses, with pagination',
  const available=await channels('secret',async()=>[{id:'c',active:true,type:'CLOUDAPI_WHATSAPP',number:'+55|92911111111'},{id:'z',active:true,type:'ZAPI_WHATSAPP',number:'1'}]);assert.equal(available.length,1);assert.equal(available[0].number,'5592911111111');
  let calls=0;const list=await templates('secret','c',async(_,path)=>{calls++;assert.ok(path.includes('IncludeDetails=All'));return {items:[{id:String(calls),active:true,status:'APPROVED',channelId:'c',params:[{name:'[p1]'}]},{id:'wrong',active:true,status:'APPROVED',channelId:'other'}],hasMorePages:calls===1};});assert.equal(list.length,2);assert.equal(calls,2);
 });
+test('reconhece o clique do modelo de relatório sem liberar por texto parecido',()=>{
+ assert.equal(isReportButton({content:{interactive:{buttonReply:{title:'Verificar Relatório'}}}}),true);
+ assert.equal(isReportButton({content:{text:'Verificar Relatório'}}),true);
+ assert.equal(isReportButton({content:{text:'quero verificar relatório'}}),false);
+});
 test('validates recipients and maps template parameters in the selected timezone',()=>{
  const event=makeEvent({start:'2030-01-01T14:00:00Z',end:'2030-01-01T15:00:00Z'}),hook=makeHook();
  const body=templateBody(hook,event,'delivery');assert.equal(body.parameters['[p1]'],'Ana');assert.equal(body.parameters['[p2]'],'10:00');assert.equal(body.senderId,'delivery');
@@ -25,6 +30,7 @@ test('validates recipients and maps template parameters in the selected timezone
  assert.throws(()=>templateBody(hook,{...event,contactName:''},'d'),/nome/);
  assert.throws(()=>eventInput({...event,phone:'invalid'}),/WhatsApp/);
  assert.throws(()=>hookInput({...hook,parameters:{p:'{{missing}}'}}),/desconhecida/);
+ assert.equal(hookInput({...hook,templateId:'relatorio'}).templateId,'relatorio');
  assert.equal(hookInput({...hook,reminderMinutes:120}).reminderMinutes,120);
 });
 test('HTTP errors never expose secrets; ambiguous POST cannot be blindly retried',async()=>{
