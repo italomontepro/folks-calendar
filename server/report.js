@@ -160,6 +160,64 @@ function formatSeconds(value) {
   return `${Math.floor(rounded / 60)}m ${String(rounded % 60).padStart(2, '0')}s`;
 }
 
+// The card API has no won/lost timestamp, so a card closed inside the window is
+// one whose status is WON/LOST and whose last update falls inside it. Open cards
+// are the current pipeline, regardless of date, like the HELENA dashboard.
+export async function collectSalesSummary(token, window, panels) {
+  const period = { 'UpdatedAt.After': window.start, 'UpdatedAt.Before': window.end };
+  const summary = [];
+  for (const panel of panels) {
+    const wonCards = await pages(token, '/crm/v2/panel/card', { PanelId: panel.id, Statuses: ['WON'], ...period });
+    const lostCards = await pages(token, '/crm/v2/panel/card', { PanelId: panel.id, Statuses: ['LOST'], IncludeDetails: ['LostReason'], ...period });
+    const openCards = await pages(token, '/crm/v2/panel/card', { PanelId: panel.id, Statuses: ['OPEN'], IncludeDetails: ['StepTitle'] });
+    const newCards = await pages(token, '/crm/v2/panel/card', { PanelId: panel.id, 'CreatedAt.After': window.start, 'CreatedAt.Before': window.end });
+    const sum = cards => cards.reduce((total, card) => total + (Number(card.monetaryAmount) || 0), 0);
+    const reasons = new Map();
+    for (const card of lostCards) { const name = card.lostReason?.name || 'Não informado'; reasons.set(name, (reasons.get(name) || 0) + 1); }
+    const cycles = wonCards.map(card => (Date.parse(card.updatedAt) - Date.parse(card.createdAt)) / 86400000).filter(days => Number.isFinite(days) && days >= 0);
+    const stepOrder = (panel.steps || []).map(step => step.id);
+    const funnel = new Map();
+    for (const card of openCards) {
+      const key = card.stepId; const current = funnel.get(key) || { name: card.stepTitle || 'Etapa', count: 0, amount: 0 };
+      current.count += 1; current.amount += Number(card.monetaryAmount) || 0; funnel.set(key, current);
+    }
+    summary.push({
+      panel: panel.name || panel.title,
+      won: { count: wonCards.length, amount: sum(wonCards) },
+      lost: { count: lostCards.length, amount: sum(lostCards) },
+      open: { count: openCards.length, amount: sum(openCards) },
+      newLeads: newCards.length,
+      topLostReason: [...reasons.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null,
+      cycleDays: cycles.length ? cycles.reduce((a, b) => a + b, 0) / cycles.length : null,
+      funnel: [...funnel.entries()].sort((a, b) => (stepOrder.indexOf(a[0]) === -1 ? 999 : stepOrder.indexOf(a[0])) - (stepOrder.indexOf(b[0]) === -1 ? 999 : stepOrder.indexOf(b[0]))).map(([, value]) => value)
+    });
+  }
+  return summary;
+}
+
+export function formatSalesSummary(sales) {
+  const lines = [];
+  for (const panel of sales || []) {
+    const closed = panel.won.count + panel.lost.count + panel.open.count;
+    const conversion = closed ? (panel.won.count / closed * 100).toFixed(1).replace('.', ',') + '%' : 'sem dados';
+    const ticket = panel.won.count ? formatMoney(panel.won.amount / panel.won.count) : 'sem dados';
+    lines.push(
+      `💼 Vendas · ${panel.panel}`,
+      `Ganhos: ${panel.won.count} · ${formatMoney(panel.won.amount)}`,
+      `Perdas: ${panel.lost.count} · ${formatMoney(panel.lost.amount)}`,
+      `Em andamento: ${panel.open.count} · ${formatMoney(panel.open.amount)}`,
+      `Novos leads: ${panel.newLeads}`,
+      `Taxa de conversão: ${conversion}`,
+      `Ticket médio: ${ticket}`,
+      `Principal motivo de perda: ${panel.topLostReason || 'sem perdas no período'}`,
+      `Ciclo médio de venda: ${panel.cycleDays == null ? 'sem dados' : panel.cycleDays.toFixed(1).replace('.', ',') + ' dias'}`,
+      ...(panel.funnel.length ? ['Funil: ' + panel.funnel.map(step => `${step.name} ${step.count}`).join(' · ')] : []),
+      ''
+    );
+  }
+  return lines;
+}
+
 export function reportLink(workspaceId) {
   const origin = (process.env.PUBLIC_URL || 'https://folks-calendar.zcfnen.easypanel.host').replace(/\/$/, '');
   return `${origin}/relatorio?workspace=${encodeURIComponent(workspaceId)}`;
@@ -192,6 +250,7 @@ export function formatMessageReport(data, window = messageReportWindow(), link =
     `Negócios ganhos: ${won.length}`,
     `Receita ganha: ${formatMoney(revenue)}`,
     '',
+    ...formatSalesSummary(data.sales),
     ...(link ? [`Relatório completo: ${link}`, ''] : []),
     'FolkSales'
   ].join('\n');
@@ -216,7 +275,8 @@ export async function sendMessageReport(db, workspaceId, { to, sessionId, kind }
     });
     cardsByPanel[panel.id] = cards.map(c => ({ status: c.status, amount: c.monetaryAmount }));
   }
-  const data = { cardsByPanel, sessions: sessions.map(s => ({
+  const sales = await collectSalesSummary(token, window, panels.map(p => ({ id: p.id, name: p.title, steps: (p.steps || []).filter(s => !s.archived).sort((a, b) => a.position - b.position) })));
+  const data = { cardsByPanel, sales, sessions: sessions.map(s => ({
     status: s.status, channel: s.channelType || s.channelDetails?.type || 'UNKNOWN',
     waitSeconds: parseDuration(s.timeWait), serviceSeconds: parseDuration(s.timeService),
     firstSeconds: s.firstResponseAt ? Math.max(0, (Date.parse(s.firstResponseAt) - Date.parse(s.createdAt)) / 1000) : null

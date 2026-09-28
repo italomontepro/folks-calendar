@@ -78,3 +78,20 @@ test('semanal sob demanda usa a última semana completa de segunda a sábado', (
   assert.equal(sunday.start, '2026-09-21T04:00:00.000Z');
   assert.match(monday.label, /21\/09\/2026 a 26\/09\/2026/);
 });
+
+test('bloco de vendas do resumo traz ganhos, perdas, andamento, conversão, ticket, motivo, ciclo e funil', () => {
+  const text = formatMessageReport({ sessions: [], cardsByPanel: {}, sales: [{
+    panel: 'Conversas Internas',
+    won: { count: 2, amount: 3000 }, lost: { count: 3, amount: 900 }, open: { count: 15, amount: 20000 },
+    newLeads: 7, topLostReason: 'Sem resposta do lead', cycleDays: 11.28,
+    funnel: [{ name: 'Primeiro Contato', count: 1, amount: 0 }, { name: 'Oportunidade', count: 14, amount: 20000 }]
+  }] }, { kind: 'day', label: 'hoje' });
+  assert.match(text, /💼 Vendas · Conversas Internas/);
+  assert.match(text, /Ganhos: 2 · R\$ 3\.000/);
+  assert.match(text, /Em andamento: 15 · R\$ 20\.000/);
+  assert.match(text, /Taxa de conversão: 10,0%/);
+  assert.match(text, /Ticket médio: R\$ 1\.500/);
+  assert.match(text, /Principal motivo de perda: Sem resposta do lead/);
+  assert.match(text, /Ciclo médio de venda: 11,3 dias/);
+  assert.match(text, /Funil: Primeiro Contato 1 · Oportunidade 14/);
+});
