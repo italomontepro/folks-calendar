@@ -62,8 +62,9 @@ test('resumo por mensagem contém atendimento, canais e vendas', () => {
       { status: 'IN_PROGRESS', channel: 'INSTAGRAM', waitSeconds: null, serviceSeconds: null, firstSeconds: null }
     ],
     cardsByPanel: { sales: [{ status: 'WON', amount: 250 }] }
-  }, { kind: 'day', label: '26/09/2026 · 00:00–20:00' });
+  }, { kind: 'day', label: '26/09/2026 · 00:00–20:00' }, 'https://exemplo.test/relatorio?workspace=abc');
   assert.match(text, /Resumo diário de atendimento/);
+  assert.match(text, /Relatório completo: https:\/\/exemplo\.test\/relatorio\?workspace=abc/);
   assert.match(text, /Conversas: 2/);
   assert.match(text, /Canais: INSTAGRAM: 2/);
   assert.match(text, /Receita ganha: R\$ 250/);

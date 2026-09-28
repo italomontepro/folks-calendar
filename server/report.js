@@ -160,7 +160,12 @@ function formatSeconds(value) {
   return `${Math.floor(rounded / 60)}m ${String(rounded % 60).padStart(2, '0')}s`;
 }
 
-export function formatMessageReport(data, window = messageReportWindow()) {
+export function reportLink(workspaceId) {
+  const origin = (process.env.PUBLIC_URL || 'https://folks-calendar.zcfnen.easypanel.host').replace(/\/$/, '');
+  return `${origin}/relatorio?workspace=${encodeURIComponent(workspaceId)}`;
+}
+
+export function formatMessageReport(data, window = messageReportWindow(), link = null) {
   const sessions = data.sessions || [];
   const completed = sessions.filter(s => s.status === 'COMPLETED').length;
   const waits = sessions.filter(s => Number.isFinite(s.waitSeconds));
@@ -187,6 +192,7 @@ export function formatMessageReport(data, window = messageReportWindow()) {
     `Negócios ganhos: ${won.length}`,
     `Receita ganha: ${formatMoney(revenue)}`,
     '',
+    ...(link ? [`Relatório completo: ${link}`, ''] : []),
     'Folks · Helena CRM'
   ].join('\n');
 }
@@ -219,7 +225,7 @@ export async function sendMessageReport(db, workspaceId, { to, sessionId, kind }
   if (!from) throw new Error('Nenhum canal oficial ativo do Helena foi encontrado para enviar o relatório.');
   const recipient = String(to || '').replace(/\D/g, '');
   if (!/^[1-9]\d{9,14}$/.test(recipient)) throw new Error('O HELENA não informou um WhatsApp válido para o relatório.');
-  const text = formatMessageReport(data, window);
+  const text = formatMessageReport(data, window, reportLink(workspaceId));
   const result = await helenaRequest(token, 'send/text', {
     from, to: recipient, text,
     ...(sessionId ? { sessionId } : {}), senderId: `folks-report:${workspaceId}:${window.kind}:${window.start}:${Date.now()}`
