@@ -193,7 +193,7 @@ export function formatMessageReport(data, window = messageReportWindow(), link =
     `Receita ganha: ${formatMoney(revenue)}`,
     '',
     ...(link ? [`Relatório completo: ${link}`, ''] : []),
-    'Folks · Helena CRM'
+    'FolkSales'
   ].join('\n');
 }
 
