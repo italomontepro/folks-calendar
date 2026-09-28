@@ -31,7 +31,9 @@ async function helenaPut(token, path, body) {
 export const getIntegration = (db, workspaceId) => db.prepare('SELECT * FROM integrations WHERE workspace_id=?').get(workspaceId);
 
 const REPORT_BUTTON = 'Verificar Relatório';
+const REPORT_BUTTON_ID = 'relatorio';
 const buttonKeys = /(button|interactive|postback|quick_?reply|reply)/i;
+const buttonValueKeys = /(id|payload|title|text|value)/i;
 function normalizedText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -43,16 +45,18 @@ export function isReportButton(payload, label = REPORT_BUTTON) {
   const target = normalizedText(label);
   if (!target) return false;
   const seen = new Set();
-  function walk(value, insideButton, depth) {
+  function walk(value, insideButton, depth, key = '') {
     if (depth > 8 || value == null) return false;
     if (typeof value === 'string') {
       const text = normalizedText(value);
-      return insideButton ? text.includes(target) : text === target;
+      return insideButton && (text.includes(target) || (buttonValueKeys.test(key) && text === REPORT_BUTTON_ID))
+        ? true
+        : !insideButton && text === target;
     }
     if (typeof value !== 'object' || seen.has(value)) return false;
     seen.add(value);
-    if (Array.isArray(value)) return value.some(item => walk(item, insideButton, depth + 1));
-    return Object.entries(value).some(([key, child]) => walk(child, insideButton || buttonKeys.test(key), depth + 1));
+    if (Array.isArray(value)) return value.some(item => walk(item, insideButton, depth + 1, key));
+    return Object.entries(value).some(([childKey, child]) => walk(child, insideButton || buttonKeys.test(childKey), depth + 1, childKey));
   }
   return walk(payload, false, 0);
 }

@@ -20,6 +20,8 @@ test('normalizes actual HELENA channel and template responses, with pagination',
 });
 test('reconhece o clique do modelo de relatório sem liberar por texto parecido',()=>{
  assert.equal(isReportButton({content:{interactive:{buttonReply:{title:'Verificar Relatório'}}}}),true);
+ assert.equal(isReportButton({content:{interactive:{buttonReply:{id:'relatorio'}}}}),true);
+ assert.equal(isReportButton({content:{quickReply:{payload:'relatorio'}}}),true);
  assert.equal(isReportButton({content:{text:'Verificar Relatório'}}),true);
  assert.equal(isReportButton({content:{text:'quero verificar relatório'}}),false);
 });
