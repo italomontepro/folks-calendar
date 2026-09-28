@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { deliver } from './delivery.js';
-import { getIntegration, templateBody, helenaRequest } from './helena.js';
+import { getIntegration, templateBody, helenaRequest, channels } from './helena.js';
+import { getReportSchedule, reportScheduleDue } from './report.js';
 export function createWorker(store, providers = {}) {
   const { db, all, get, transaction, parseRow } = store;
-  const sendHelena=providers.helena || helenaRequest, sendWebhook=providers.webhook || deliver;
+  const sendHelena=providers.helena || helenaRequest, sendWebhook=providers.webhook || deliver, listChannels=providers.channels || channels;
   // The provider does not document idempotency. Never blindly repeat an interrupted POST.
   db.prepare("UPDATE jobs SET status='unknown',error='Envio interrompido. Confira o atendimento antes de reenviar.' WHERE status='sending'").run();
   function enqueue(type, event, workspaceId, onlyHook, webhookOnly=false) {
@@ -13,6 +14,17 @@ export function createWorker(store, providers = {}) {
       const payload = { id, type, workspaceId, createdAt: created, source: 'folks-calendar', data: { ...event, workspaceId }, ...(hook.kind==='helena'?{automation:hook}:{}) };
       db.prepare('INSERT INTO jobs (id,hook,payload,next,created,workspace_id) VALUES (?,?,?,?,?,?)').run(id, hook.id, JSON.stringify(payload), Date.now(), created, workspaceId);
     }
+  }
+  // One template per recipient; the click on “Verificar Relatório” answers
+  // with the summary, so the scheduled send only needs to open the window.
+  function enqueueReport(workspaceId, schedule, localDate) {
+    const created = new Date().toISOString();
+    for (const to of schedule.recipients) {
+      const id = randomUUID();
+      const payload = { id, type: 'report.template', workspaceId, createdAt: created, source: 'folks-calendar', data: { to, templateId: schedule.templateId, localDate } };
+      db.prepare('INSERT INTO jobs (id,hook,payload,next,created,workspace_id) VALUES (?,?,?,?,?,?)').run(id, 'report', JSON.stringify(payload), Date.now(), created, workspaceId);
+    }
+    return schedule.recipients.length;
   }
   let running = false;
   async function tick() {
@@ -42,8 +54,35 @@ export function createWorker(store, providers = {}) {
           }
         }
       }
+      for (const row of db.prepare('SELECT workspace_id FROM report_schedules').all()) {
+        const schedule = getReportSchedule(db, row.workspace_id);
+        if (!schedule.enabled || !schedule.recipients.length || !getIntegration(db, row.workspace_id)) continue;
+        const due = reportScheduleDue(schedule, new Date(now));
+        if (!due) continue;
+        transaction(() => {
+          if (db.prepare('INSERT OR IGNORE INTO fired (key) VALUES (?)').run(`${due.key}:${row.workspace_id}`).changes && due.send) enqueueReport(row.workspace_id, schedule, due.localDate);
+        });
+      }
       for (const job of db.prepare("SELECT * FROM jobs WHERE status='pending' AND next<=? ORDER BY next LIMIT 10").all(now)) {
-        const currentHook = get('hooks', job.hook, job.workspace_id), payload=JSON.parse(job.payload);
+        const payload=JSON.parse(job.payload);
+        if (payload.type === 'report.template') {
+          const config = getIntegration(db, job.workspace_id);
+          if (!config) { db.prepare("UPDATE jobs SET status='cancelled' WHERE id=?").run(job.id); continue; }
+          try {
+            const from = (await listChannels(config.token))[0]?.number;
+            if (!from) throw new Error('Nenhum canal oficial ativo do HELENA foi encontrado para enviar o relatório.');
+            db.prepare("UPDATE jobs SET status='sending',attempts=attempts+1,integration_revision=? WHERE id=?").run(config.revision, job.id);
+            const result = await sendHelena(config.token, 'send/template', { from, to: payload.data.to, templateId: payload.data.templateId, parameters: {}, senderId: job.id });
+            if (!result?.id) throw Object.assign(new Error('O HELENA não retornou o ID. Confira o atendimento antes de reenviar.'), { ambiguous: true });
+            const status = result.status === 'FAILED' ? 'failed' : ['DELIVERED','READ'].includes(result.status) ? 'delivered' : 'accepted';
+            db.prepare('UPDATE jobs SET status=?,provider_id=?,provider_status=?,error=? WHERE id=?').run(status, result.id, result.status || 'PROCESSING', status === 'failed' ? 'O HELENA informou falha no envio. Consulte o atendimento.' : null, job.id);
+          } catch (error) {
+            const count = job.attempts + 1;
+            db.prepare('UPDATE jobs SET attempts=?,status=?,error=?,next=? WHERE id=?').run(count, error.ambiguous ? 'unknown' : error.retryable && count < 5 ? 'pending' : 'failed', error.message, Date.now() + Math.min(3600, 30 * 2 ** (count - 1)) * 1000, job.id);
+          }
+          continue;
+        }
+        const currentHook = get('hooks', job.hook, job.workspace_id);
         if (!currentHook?.enabled) { db.prepare("UPDATE jobs SET status='cancelled' WHERE id=?").run(job.id); continue; }
         const hook=payload.automation || currentHook;
         if(hook.kind==='helena') {
@@ -75,5 +114,5 @@ export function createWorker(store, providers = {}) {
       }
     } finally { running = false; }
   }
-  return { enqueue, tick };
+  return { enqueue, enqueueReport, tick };
 }

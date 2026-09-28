@@ -65,3 +65,22 @@ test('cancels stale reminders and changed credentials; uncertain sends survive r
  worker.enqueue('event.created',event,ws);db.prepare("UPDATE integrations SET revision='changed'").run();await worker.tick();assert.equal(calls,1);
  db.prepare("UPDATE jobs SET status='sending' WHERE status='unknown'").run();worker=createWorker(store,{helena:async()=>{calls++;}});await worker.tick();assert.equal(calls,1);assert.equal(db.prepare("SELECT COUNT(*) n FROM jobs WHERE status='unknown'").get().n,1);
 }));
+test('relatório diário: envia o modelo uma vez por dia no horário, por destinatário, e não repete o dia perdido',async()=>fixture(async(store,ws)=>{
+ const {db}=store;const {saveReportSchedule,reportScheduleDue,reportScheduleInput}=await import('../server/report.js');
+ db.prepare('INSERT INTO integrations VALUES (?,?,?,?,?)').run(ws,'account-A','rev','secret','1f08f5c8-c4ae-4730-b820-871e7d8af275');
+ assert.throws(()=>reportScheduleInput({enabled:true,recipients:[]}),/pelo menos um WhatsApp/);
+ assert.throws(()=>reportScheduleInput({recipients:['123']}),/WhatsApp inválido/);
+ const saved=saveReportSchedule(db,ws,{enabled:true,hour:20,recipients:'+55 (92) 98453-2273\n5592999999999\n5592999999999'});
+ assert.deepEqual(saved.recipients,['5592984532273','5592999999999']);assert.equal(saved.templateId,'relatorio');
+ // 20:00 Manaus = 00:00 UTC do dia seguinte
+ assert.equal(reportScheduleDue(saved,new Date('2026-09-28T23:59:00Z')),null);
+ assert.equal(reportScheduleDue(saved,new Date('2026-09-29T00:05:00Z')).send,true);
+ assert.equal(reportScheduleDue(saved,new Date('2026-09-29T03:00:00Z')).send,false);
+ const calls=[];const worker=createWorker(store,{helena:async(token,path,body)=>{calls.push({token,path,body});return {id:randomUUID(),status:'QUEUED'};},channels:async()=>[{id:'c',number:'5592111111111',name:'Canal'}]});
+ const realNow=Date.now;Date.now=()=>new Date('2026-09-29T00:05:00Z').getTime();
+ try {await worker.tick();await worker.tick();} finally {Date.now=realNow;}
+ assert.equal(calls.length,2);assert.equal(calls[0].path,'send/template');assert.equal(calls[0].body.templateId,'relatorio');assert.equal(calls[0].body.from,'5592111111111');assert.deepEqual(calls.map(c=>c.body.to).sort(),['5592984532273','5592999999999']);
+ const jobs=db.prepare("SELECT status,hook FROM jobs").all();assert.equal(jobs.length,2);assert.ok(jobs.every(j=>j.status==='accepted' && j.hook==='report'));
+ assert.equal(worker.enqueueReport(ws,saved,'2026-09-29'),2);await worker.tick();assert.equal(calls.length,4);
+ saveReportSchedule(db,ws,{...saved,enabled:false});Date.now=()=>new Date('2026-09-30T00:05:00Z').getTime();try{await worker.tick();}finally{Date.now=realNow;}assert.equal(calls.length,4);
+}));

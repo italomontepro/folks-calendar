@@ -92,7 +92,13 @@ export async function openStore(dataDir) {
     transaction(() => {
       db.exec(`CREATE TABLE IF NOT EXISTS google_integrations (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), refresh_token TEXT NOT NULL, calendar_id TEXT NOT NULL DEFAULT 'primary', account_email TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS google_oauth_states (state TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), user_id TEXT NOT NULL REFERENCES users(id), expires INTEGER NOT NULL);
-        PRAGMA user_version=4;`);
+        PRAGMA user_version=5;`);
+    });
+  }
+  if (version < 6) {
+    transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS report_schedules (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), body TEXT NOT NULL);
+        PRAGMA user_version=6;`);
     });
   }
   const parseRow = row => row ? { ...JSON.parse(row.body), workspaceId: row.workspace_id } : null;

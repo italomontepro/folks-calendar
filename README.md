@@ -28,6 +28,7 @@ Abra http://localhost:5173. O login individual é obrigatório em todos os ambie
 - Atualização dos dados a cada 15 segundos.
 - Relatório de Atendimento e Vendas do HELENA em `/relatorio?workspace=ID`, com filtro mensal, por equipe e por atendente. A consulta usa o token já vinculado ao workspace, exige o mesmo login da agenda e atualiza o cache do servidor a cada 15 minutos enquanto o relatório estiver em uso. A página verifica atualizações a cada 5 minutos e mostra a data da última coleta.
 - O clique no botão `Verificar Relatório` do modelo HELENA `relatorio` responde na mesma conversa com um resumo em texto: de segunda a sábado, o período do dia (00:00–20:00 em Manaus); no domingo, o consolidado de segunda a sábado.
+- Envio diário do modelo: em **Integrações → Relatório diário pelo WhatsApp**, informe os números com DDI e o horário (Manaus). Todos os dias o FolkSales envia o modelo `relatorio` para cada número, uma vez por dia; o botão **Enviar agora** dispara imediatamente e o resultado aparece no Histórico de disparos. Um dia perdido por mais de duas horas (servidor parado) não é reenviado.
 - Autenticação por e-mail e senha individual (hash scrypt), sessões revogáveis de 12 horas guardadas por aba e limite de tentativas.
 - Troca de senha encerra todas as sessões da pessoa. Sair revoga a sessão atual.
 - Modo `/?workspace=ID&embed=1`, com navegação compacta e autorização por workspace.

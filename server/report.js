@@ -72,6 +72,49 @@ function manausBoundary(year, month, day, hour = 0) {
   return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour) + 4));
 }
 
+export const REPORT_TEMPLATE_ID = 'relatorio';
+const DEFAULT_SCHEDULE = { enabled: false, hour: 20, recipients: [], templateId: REPORT_TEMPLATE_ID };
+
+export function getReportSchedule(db, workspaceId) {
+  const row = db.prepare('SELECT body FROM report_schedules WHERE workspace_id=?').get(workspaceId);
+  return row ? { ...DEFAULT_SCHEDULE, ...JSON.parse(row.body) } : { ...DEFAULT_SCHEDULE };
+}
+
+export function reportScheduleInput(input) {
+  if (!input || typeof input !== 'object') fail(400, 'Informe a configuração do relatório.');
+  const hour = Number(input.hour ?? DEFAULT_SCHEDULE.hour);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) fail(400, 'Informe a hora do envio entre 0 e 23.');
+  const list = Array.isArray(input.recipients) ? input.recipients : typeof input.recipients === 'string' ? input.recipients.split(/[\n,;]+/) : [];
+  const recipients = [...new Set(list.map(value => String(value || '').replace(/[\s()+.-]/g, '')).filter(Boolean))];
+  if (recipients.length > 20) fail(400, 'Informe no máximo 20 números.');
+  const invalid = recipients.find(number => !/^[1-9]\d{9,14}$/.test(number));
+  if (invalid) fail(400, `WhatsApp inválido: ${invalid}. Use DDI e DDD, por exemplo 5592984532273.`);
+  const templateId = typeof input.templateId === 'string' && input.templateId.trim() ? input.templateId.trim() : REPORT_TEMPLATE_ID;
+  if (!/^[^\u0000-\u001f\u007f]{1,200}$/.test(templateId)) fail(400, 'Identificador do modelo inválido.');
+  const enabled = input.enabled === true;
+  if (enabled && !recipients.length) fail(400, 'Informe pelo menos um WhatsApp para ativar o envio diário.');
+  return { enabled, hour, recipients, templateId };
+}
+
+export function saveReportSchedule(db, workspaceId, input) {
+  const schedule = reportScheduleInput(input);
+  db.prepare('INSERT INTO report_schedules (workspace_id, body) VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET body=excluded.body')
+    .run(workspaceId, JSON.stringify({ ...schedule, updatedAt: new Date().toISOString() }));
+  return getReportSchedule(db, workspaceId);
+}
+
+// The template opens the 24h window; the click answers with the summary of the
+// day (Mon–Sat, until 20:00) or of the week (Sunday). Fire once per local day,
+// at the configured hour, and never replay a day missed by more than two hours.
+export function reportScheduleDue(schedule, now = new Date()) {
+  const parts = localParts(now);
+  const localDate = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+  const due = manausBoundary(parts.year, parts.month, parts.day, schedule.hour);
+  const elapsed = now.getTime() - due.getTime();
+  if (elapsed < 0) return null;
+  return { key: `report:${localDate}`, localDate, send: elapsed <= 2 * 3600_000 };
+}
+
 export function messageReportWindow(now = new Date()) {
   const parts = localParts(now);
   const day = manausBoundary(parts.year, parts.month, parts.day);

@@ -8,11 +8,11 @@ import { openStore } from './store.js';
 import { installIdentity } from './identity.js';
 import { createWorker } from './worker.js';
 import { installGoogle, createGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from './google.js';
-import { installReport } from './report.js';
+import { installReport, getReportSchedule, saveReportSchedule } from './report.js';
 
 const store = await openStore(resolve(process.env.DATA_DIR || './data'));
 const { db, all, get, put, transaction } = store;
-const { enqueue, tick } = createWorker(store);
+const { enqueue, enqueueReport, tick } = createWorker(store);
 const app = express();
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY_HOPS) app.set('trust proxy',Number(process.env.TRUST_PROXY_HOPS));
@@ -113,6 +113,15 @@ app.post(base+'/hooks/:id/test',admin,(req,res) => {
   if (hook.kind==='helena') fail(400,'Para conferir a conexão, carregue os modelos. Testes de webhook não enviam mensagens.');
   if (!hook.enabled) fail(400,'Ative a automação antes de testar.');
   enqueue('webhook.test',{message:'Olá do FolkSales!'},req.workspaceId,hook.id);res.json({ok:true});
+});
+app.get(base+'/helena/report',admin,(req,res) => res.json(getReportSchedule(db,req.workspaceId)));
+app.put(base+'/helena/report',admin,(req,res) => res.json(saveReportSchedule(db,req.workspaceId,req.body)));
+app.post(base+'/helena/report/send',admin,(req,res) => {
+  if (!db.prepare('SELECT 1 FROM integrations WHERE workspace_id=?').get(req.workspaceId)) fail(400,'Conecte o HELENA antes de enviar o relatório.');
+  const schedule = getReportSchedule(db,req.workspaceId);
+  if (!schedule.recipients.length) fail(400,'Salve pelo menos um WhatsApp antes de enviar o relatório.');
+  const count = enqueueReport(req.workspaceId,schedule,new Date().toISOString().slice(0,10));
+  res.json({ok:true,count});
 });
 app.get(base+'/deliveries',admin,(req,res) => res.json(db.prepare('SELECT id,hook,attempts,status,error,created,payload,provider_id,provider_status FROM jobs WHERE workspace_id=? ORDER BY created DESC LIMIT 100').all(req.workspaceId).map(j=>({...j,type:JSON.parse(j.payload).type,payload:undefined}))));
 const timer = setInterval(() => tick().catch(console.error),5000);timer.unref();

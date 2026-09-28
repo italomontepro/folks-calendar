@@ -28,7 +28,7 @@ test('migrates legacy data once, backs up, and requires individual login',async(
  assert.equal((await api(path(wsA,'/events'))).body[0].workspaceId,wsA);
  assert.equal((await api(path(wsA,'/hooks'))).body[0].secret,'preserve-this-secret');
  assert.equal((await api(path(wsA,'/deliveries'))).body[0].id,'legacy-job');
- const db=new DatabaseSync(dbPath);assert.equal(db.prepare('PRAGMA user_version').get().user_version,4);assert.equal(db.prepare('SELECT count(*) n FROM fired').get().n,1);assert.equal(db.prepare('SELECT workspace_id FROM jobs').get().workspace_id,wsA);assert.equal(JSON.parse(db.prepare('SELECT payload FROM jobs').get().payload).workspaceId,wsA);db.close();
+ const db=new DatabaseSync(dbPath);assert.equal(db.prepare('PRAGMA user_version').get().user_version,6);assert.equal(db.prepare('SELECT count(*) n FROM fired').get().n,1);assert.equal(db.prepare('SELECT workspace_id FROM jobs').get().workspace_id,wsA);assert.equal(JSON.parse(db.prepare('SELECT payload FROM jobs').get().payload).workspaceId,wsA);db.close();
  assert.equal(readdirSync(dir).filter(f=>f.startsWith('backup-before-workspaces')).length,1);
  assert.equal((await api('/events')).status,404);
  assert.equal((await api(path(wsA,'/events'),{token:'9999999999999.fake-legacy-signature'})).status,401);
