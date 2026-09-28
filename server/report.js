@@ -115,6 +115,22 @@ export function reportScheduleDue(schedule, now = new Date()) {
   return { key: `report:${localDate}`, localDate, send: elapsed <= 2 * 3600_000 };
 }
 
+// The most recent complete Monday–Saturday block: on Sunday it is the week
+// that just ended; on any other day it is the previous week.
+export function weeklyReportWindow(now = new Date()) {
+  const parts = localParts(now);
+  const day = manausBoundary(parts.year, parts.month, parts.day);
+  const sinceMonday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(parts.weekday);
+  const start = new Date(day);
+  start.setUTCDate(start.getUTCDate() - (sinceMonday === 6 ? 6 : sinceMonday + 7));
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return {
+    start: start.toISOString(), end: end.toISOString(), kind: 'week',
+    label: `segunda a sábado · ${start.toLocaleDateString('pt-BR', { timeZone: zone })} a ${new Date(end.getTime() - 1).toLocaleDateString('pt-BR', { timeZone: zone })}`
+  };
+}
+
 export function messageReportWindow(now = new Date()) {
   const parts = localParts(now);
   const day = manausBoundary(parts.year, parts.month, parts.day);
@@ -175,10 +191,10 @@ export function formatMessageReport(data, window = messageReportWindow()) {
   ].join('\n');
 }
 
-export async function sendMessageReport(db, workspaceId, { to, sessionId }) {
+export async function sendMessageReport(db, workspaceId, { to, sessionId, kind }) {
   const integration = getIntegration(db, workspaceId);
   if (!integration) throw new Error('Conecte o Helena neste workspace antes de enviar o relatório.');
-  const window = messageReportWindow();
+  const window = kind === 'week' ? weeklyReportWindow() : kind === 'day' ? messageReportWindow() : messageReportWindow();
   const token = integration.token;
   const [channelList, panelResult, sessions] = await Promise.all([
     channels(token),
@@ -206,7 +222,7 @@ export async function sendMessageReport(db, workspaceId, { to, sessionId }) {
   const text = formatMessageReport(data, window);
   const result = await helenaRequest(token, 'send/text', {
     from, to: recipient, text,
-    ...(sessionId ? { sessionId } : {}), senderId: `folks-report:${workspaceId}:${window.start}`
+    ...(sessionId ? { sessionId } : {}), senderId: `folks-report:${workspaceId}:${window.kind}:${window.start}:${Date.now()}`
   });
   if (!result?.id) throw new Error('O Helena não retornou o ID do envio do relatório.');
   return result;

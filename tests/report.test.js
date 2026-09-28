@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatMessageReport, messageReportWindow, parseDuration } from '../server/report.js';
+import { formatMessageReport, messageReportWindow, weeklyReportWindow, parseDuration } from '../server/report.js';
 import { dayOf, summarize, teamForCard } from '../src/reportMetrics.js';
 
 test('tempos do Helena podem ultrapassar 24 horas e a data segue Manaus', () => {
@@ -67,4 +67,13 @@ test('resumo por mensagem contém atendimento, canais e vendas', () => {
   assert.match(text, /Conversas: 2/);
   assert.match(text, /Canais: INSTAGRAM: 2/);
   assert.match(text, /Receita ganha: R\$ 250/);
+});
+
+test('semanal sob demanda usa a última semana completa de segunda a sábado', () => {
+  const monday = weeklyReportWindow(new Date('2026-09-28T17:00:00Z'));
+  assert.equal(monday.start, '2026-09-21T04:00:00.000Z');
+  assert.equal(monday.end, '2026-09-27T04:00:00.000Z');
+  const sunday = weeklyReportWindow(new Date('2026-09-27T16:00:00Z'));
+  assert.equal(sunday.start, '2026-09-21T04:00:00.000Z');
+  assert.match(monday.label, /21\/09\/2026 a 26\/09\/2026/);
 });

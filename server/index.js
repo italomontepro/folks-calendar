@@ -8,7 +8,7 @@ import { openStore } from './store.js';
 import { installIdentity } from './identity.js';
 import { createWorker } from './worker.js';
 import { installGoogle, createGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from './google.js';
-import { installReport, getReportSchedule, saveReportSchedule } from './report.js';
+import { installReport, getReportSchedule, saveReportSchedule, sendMessageReport } from './report.js';
 
 const store = await openStore(resolve(process.env.DATA_DIR || './data'));
 const { db, all, get, put, transaction } = store;
@@ -122,6 +122,13 @@ app.post(base+'/helena/report/send',admin,(req,res) => {
   if (!schedule.recipients.length) fail(400,'Salve pelo menos um WhatsApp antes de enviar o relatório.');
   const count = enqueueReport(req.workspaceId,schedule,new Date().toISOString().slice(0,10));
   res.json({ok:true,count});
+});
+app.post(base+'/helena/report/summary',admin,async(req,res) => {
+  const to = String(req.body?.to || '').replace(/[\s()+.-]/g,'');
+  if (!/^[1-9]\d{9,14}$/.test(to)) fail(400,'Informe o WhatsApp com DDI e DDD.');
+  const kind = req.body?.kind === 'week' ? 'week' : 'day';
+  try { const result = await sendMessageReport(db,req.workspaceId,{to,kind}); res.json({ok:true,id:result.id,status:result.status || 'PROCESSING',kind}); }
+  catch (error) { fail(400,error.message); }
 });
 app.get(base+'/deliveries',admin,(req,res) => res.json(db.prepare('SELECT id,hook,attempts,status,error,created,payload,provider_id,provider_status FROM jobs WHERE workspace_id=? ORDER BY created DESC LIMIT 100').all(req.workspaceId).map(j=>({...j,type:JSON.parse(j.payload).type,payload:undefined}))));
 const timer = setInterval(() => tick().catch(console.error),5000);timer.unref();
