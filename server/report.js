@@ -209,11 +209,15 @@ export function formatSalesSummary(sales) {
       `Novos leads: ${panel.newLeads}`,
       `Taxa de conversão: ${conversion}`,
       `Ticket médio: ${ticket}`,
-      `Principal motivo de perda: ${panel.topLostReason || 'sem perdas no período'}`,
       `Ciclo médio de venda: ${panel.cycleDays == null ? 'sem dados' : panel.cycleDays.toFixed(1).replace('.', ',') + ' dias'}`,
-      ...(panel.funnel.length ? ['Funil: ' + panel.funnel.map(step => `${step.name} ${step.count}`).join(' · ')] : []),
+      `Principal motivo de perda: ${panel.topLostReason || 'sem perdas no período'}`,
       ''
     );
+    if (panel.funnel.length) {
+      lines.push('🔻 Funil · cards em aberto por etapa');
+      for (const step of panel.funnel) lines.push(`${step.name}: ${step.count}${step.amount > 0 ? ' · ' + formatMoney(step.amount) : ''}`);
+      lines.push('');
+    }
   }
   return lines;
 }

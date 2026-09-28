@@ -93,5 +93,5 @@ test('bloco de vendas do resumo traz ganhos, perdas, andamento, conversão, tick
   assert.match(text, /Ticket médio: R\$ 1\.500/);
   assert.match(text, /Principal motivo de perda: Sem resposta do lead/);
   assert.match(text, /Ciclo médio de venda: 11,3 dias/);
-  assert.match(text, /Funil: Primeiro Contato 1 · Oportunidade 14/);
+  assert.match(text, /🔻 Funil · cards em aberto por etapa\nPrimeiro Contato: 1\nOportunidade: 14 · R\$ 20\.000\n\nFolkSales/);
 });
