@@ -144,6 +144,9 @@ export function installHelena(app, store, base, admin) {
       return eventPhone && phone && eventPhone===phone && Date.parse(event.start)>Date.now()-48*3600000;
     }).sort((a,b)=>Date.parse(a.start)-Date.parse(b.start));
     try {
+      // Only contacts with an upcoming event in this workspace are handled; the
+      // account webhook also delivers every other customer conversation.
+      if (!events[0]) return;
       if (/\b(remarcar|reagendar|alterar|mudar)\b/.test(text)) {
         await helenaPut(integration.token,`session/${encodeURIComponent(sessionId)}/transfer`,{type:'DEPARTMENT',newDepartmentId:integration.reschedule_department_id || '1f08f5c8-c4ae-4730-b820-871e7d8af275'});
       } else if (/\b(confirmar|confirmado|confirmo|sim)\b/.test(text) && events[0]) {
