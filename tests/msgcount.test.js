@@ -88,7 +88,7 @@ test('conta só mensagens recebidas dentro da janela, pela equipe da conversa', 
   assert.ok(!calls.some(c => c.includes('SessionId=s4')), 'conversa criada depois da janela não é consultada');
 });
 
-test('worker envia o modelo uma vez por horário, pelo canal configurado, e calcula a contagem', async () => fixture(async (store, ws) => {
+test('worker calcula a contagem e só depois envia o modelo, uma vez por horário e pelo canal configurado', async () => fixture(async (store, ws) => {
   const { db } = store;
   db.prepare('INSERT INTO integrations VALUES (?,?,?,?,?)').run(ws, 'account', 'rev', 'secret', 'x');
   saveMsgcount(db, ws, { enabled: true, channelId: CH, templateId: TPL, hours: [0, 6, 12, 18], recipients: ['5592981572606', '5592984532273'] });
@@ -100,9 +100,13 @@ test('worker envia o modelo uma vez por horário, pelo canal configurado, e calc
   const worker = createWorker(store, {
     helena: async (token, path, body) => { sends.push({ path, body }); return { id: 'p' + sends.length, status: 'QUEUED' }; },
     channels: async () => [{ id: 'outro', number: '5592000000000' }, { id: CH, number: '5592981586710' }],
-    snapshot: async (_db, workspace, window) => { snapshots.push(window); return {}; }
+    snapshot: (_db, workspace, window) => { snapshots.push(window); return new Promise(resolve => { ready = resolve; }); }
   });
+  let ready;
   await worker.tick(); await worker.tick();
+  assert.equal(sends.length, 0, 'o modelo espera a contagem ficar pronta');
+  ready({}); await new Promise(r => setTimeout(r, 0));
+  await worker.tick();
   assert.equal(sends.length, 2);
   assert.ok(sends.every(s => s.path === 'send/template' && s.body.from === '5592981586710' && s.body.templateId === TPL));
   assert.deepEqual(sends.map(s => s.body.to).sort(), ['5592981572606', '5592984532273']);

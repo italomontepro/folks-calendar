@@ -3,6 +3,8 @@ import { deliver } from './delivery.js';
 import { getIntegration, templateBody, helenaRequest, channels } from './helena.js';
 import { getReportSchedule, reportScheduleDue } from './report.js';
 import { getMsgcount, msgcountDue, msgcountWindow, snapshot, channelNumber } from './msgcount.js';
+
+const MSGCOUNT_HOLD = 15 * 60_000;
 export function createWorker(store, providers = {}) {
   const { db, all, get, transaction, parseRow } = store;
   const sendHelena=providers.helena || helenaRequest, sendWebhook=providers.webhook || deliver, listChannels=providers.channels || channels;
@@ -28,12 +30,13 @@ export function createWorker(store, providers = {}) {
     return schedule.recipients.length;
   }
   // Same delivery path as the daily report, but from the configured channel.
-  function enqueueMsgcount(workspaceId, config, slot) {
+  // `holdMs` delays the send so the count is ready before the template arrives.
+  function enqueueMsgcount(workspaceId, config, slot, holdMs = 0) {
     const created = new Date().toISOString();
     for (const to of config.recipients) {
       const id = randomUUID();
       const payload = { id, type: 'report.template', workspaceId, createdAt: created, source: 'folks-calendar', data: { to, templateId: config.templateId, channelId: config.channelId, slot, report: 'msgcount' } };
-      db.prepare('INSERT INTO jobs (id,hook,payload,next,created,workspace_id) VALUES (?,?,?,?,?,?)').run(id, 'msgcount', JSON.stringify(payload), Date.now(), created, workspaceId);
+      db.prepare('INSERT INTO jobs (id,hook,payload,next,created,workspace_id) VALUES (?,?,?,?,?,?)').run(id, 'msgcount', JSON.stringify(payload), Date.now() + holdMs, created, workspaceId);
     }
     return config.recipients.length;
   }
@@ -80,10 +83,14 @@ export function createWorker(store, providers = {}) {
         for (const slot of msgcountDue(config, new Date(now))) {
           let fresh = false;
           transaction(() => {
-            if (db.prepare('INSERT OR IGNORE INTO fired (key) VALUES (?)').run(`msgcount:${slot}:${row.workspace_id}`).changes) { enqueueMsgcount(row.workspace_id, config, slot); fresh = true; }
+            if (db.prepare('INSERT OR IGNORE INTO fired (key) VALUES (?)').run(`msgcount:${slot}:${row.workspace_id}`).changes) { enqueueMsgcount(row.workspace_id, config, slot, MSGCOUNT_HOLD); fresh = true; }
           });
-          // Count while the template is on its way, so the click answers at once.
-          if (fresh) (providers.snapshot || snapshot)(db, row.workspace_id, msgcountWindow(config.hours, new Date(slot))).catch(error => console.error('HELENA msgcount snapshot:', error.message));
+          // The template goes out only once the count is ready, so the click
+          // answers at once. The hold is a ceiling: after a failure or a
+          // restart the template still goes out and the click counts on demand.
+          if (fresh) (providers.snapshot || snapshot)(db, row.workspace_id, msgcountWindow(config.hours, new Date(slot)))
+            .catch(error => console.error('HELENA msgcount snapshot:', error.message))
+            .finally(() => db.prepare("UPDATE jobs SET next=? WHERE workspace_id=? AND hook='msgcount' AND status='pending' AND next>?").run(Date.now(), row.workspace_id, Date.now()));
         }
       }
       for (const job of db.prepare("SELECT * FROM jobs WHERE status='pending' AND next<=? ORDER BY next LIMIT 10").all(now)) {
