@@ -153,7 +153,7 @@ async function pages(token, path, params, fetcher, pace) {
   throw new Error('A consulta ultrapassou 50.000 registros.');
 }
 
-// Counts customer messages (TO_HUB) created inside the window, per team. The
+// Counts customer messages (FROM_HUB; TO_HUB is the team's own replies) created inside the window, per team. The
 // message API has no team filter, so the team is the conversation's current
 // team; a conversation transferred later is counted in its final team.
 export async function collectMsgcount(token, window, fetcher = fetch, perSecond = RATE) {
@@ -170,14 +170,14 @@ export async function collectMsgcount(token, window, fetcher = fetch, perSecond 
     while (queue.length) {
       const session = queue.shift();
       const messages = await pages(token, '/chat/v1/message', { SessionId: session.id, 'CreatedAt.After': window.start, 'CreatedAt.Before': window.end }, fetcher, pace);
-      const count = messages.filter(m => m.direction === 'TO_HUB').length;
+      const count = messages.filter(m => m.direction === 'FROM_HUB').length;
       if (!count) continue;
       const name = names.get(session.departmentId) || 'Sem equipe';
       received.set(name, (received.get(name) || 0) + count);
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-  return { window, updatedAt: new Date().toISOString(), teams: Object.fromEntries(received) };
+  return { window, updatedAt: new Date().toISOString(), direction: 'FROM_HUB', teams: Object.fromEntries(received) };
 }
 
 const fold = value => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -222,6 +222,14 @@ export function samePhone(a, b) {
   return !!x && x === y;
 }
 
+// Webhook messages carry only the session id; the phone is on the contact.
+export async function sessionPhone(token, sessionId, fetcher = fetch) {
+  const session = await helenaGet(token, `/chat/v2/session/${encodeURIComponent(sessionId)}`, {}, fetcher);
+  if (!session?.contactId) return '';
+  const contact = await helenaGet(token, `/core/v1/contact/${encodeURIComponent(session.contactId)}`, {}, fetcher);
+  return String(contact?.phoneNumber || '').replace(/\D/g, '');
+}
+
 export async function channelNumber(token, channelId, list = channels) {
   const channel = (await list(token)).find(c => c.id === channelId);
   if (!channel) throw new Error('O canal configurado para o relatório de mensagens não está ativo no Helena.');
@@ -234,7 +242,9 @@ export async function channelNumber(token, channelId, list = channels) {
 const pending = new Map();
 export function snapshot(db, workspaceId, window, { fetcher } = {}) {
   const row = db.prepare('SELECT body FROM msgcount_snapshots WHERE workspace_id=? AND window_end=?').get(workspaceId, window.end);
-  if (row) return Promise.resolve(JSON.parse(row.body));
+  const cached = row && JSON.parse(row.body);
+  // Snapshots without the direction marker counted the team's replies.
+  if (cached?.direction === 'FROM_HUB') return Promise.resolve(cached);
   const key = `${workspaceId}|${window.end}`;
   if (pending.has(key)) return pending.get(key);
   const integration = getIntegration(db, workspaceId);

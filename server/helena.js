@@ -117,20 +117,30 @@ export function installHelena(app, store, base, admin) {
     const text=strings.map(x=>x.value).join(' ').toLowerCase();
     const find=(names, value=body.content || body, parent='')=>{if(!value || typeof value!=='object')return null;for(const [k,v] of Object.entries(value)){const lower=k.toLowerCase();if(names.includes(lower) && typeof v==='string')return v;if(lower==='id' && /session|conversation|atendimento/.test(parent) && typeof v==='string')return v;if(v&&typeof v==='object'){const found=find(names,v,lower);if(found)return found;}}return null;};
     const sessionId=find(['sessionid','session_id','session','conversationid','conversation']);
-    const phone=(find(['phonenumber','phonenumberformatted','phone','to','contactphonenumber'])||'').replace(/[^0-9]/g,'');
+    let phone=(find(['phonenumber','phonenumberformatted','phone','to','contactphonenumber'])||'').replace(/[^0-9]/g,'');
     if (!sessionId) return;
+    // The team's own messages are never a click or a customer reply.
+    if ((body.content || {}).direction === 'TO_HUB') return;
     const workspaceId=integration.workspace_id;
-    const { getMsgcount, samePhone, sendMsgcount } = await import('./msgcount.js');
+    const { getMsgcount, samePhone, sendMsgcount, sessionPhone } = await import('./msgcount.js');
     const msgcount = getMsgcount(db, workspaceId);
+    const msgcountClick = !!msgcount.channelId && isReportButton(body, msgcount.button), reportClick = isReportButton(body);
+    // HELENA delivers the message without the contact's phone; look it up only
+    // for button clicks or when this workspace has events to match.
+    const hasEvents = () => store.all('events',workspaceId).some(event=>event.phone && Date.parse(event.start)>Date.now()-48*3600000);
+    if (!phone && (msgcountClick || reportClick || hasEvents())) {
+      try { phone = await sessionPhone(integration.token, sessionId); }
+      catch (error) { console.error('HELENA contact phone:', error.message); return; }
+    }
     // Only the configured recipients get the count; the button text alone is
     // not enough, since any customer of the account could type it.
-    if (msgcount.channelId && msgcount.recipients.some(n => samePhone(n, phone)) && isReportButton(body, msgcount.button)) {
+    if (msgcountClick && msgcount.recipients.some(n => samePhone(n, phone))) {
       try { await sendMsgcount(db, workspaceId, { to: phone, sessionId }); }
       catch (error) { console.error('HELENA msgcount message:', error.message); }
       return;
     }
     const { getReportSchedule } = await import('./report.js');
-    if (isReportButton(body) && getReportSchedule(db, workspaceId).recipients.some(n => samePhone(n, phone))) {
+    if (reportClick && getReportSchedule(db, workspaceId).recipients.some(n => samePhone(n, phone))) {
       try {
         const { sendMessageReport } = await import('./report.js');
         await sendMessageReport(db, workspaceId, { to: phone, sessionId });

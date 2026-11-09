@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../server/store.js';
 import { createWorker } from '../server/worker.js';
-import { msgcountWindow, msgcountDue, msgcountInput, formatMsgcount, samePhone, collectMsgcount, saveMsgcount, getMsgcount } from '../server/msgcount.js';
+import { msgcountWindow, msgcountDue, msgcountInput, formatMsgcount, samePhone, collectMsgcount, saveMsgcount, getMsgcount, sessionPhone } from '../server/msgcount.js';
 
 const CH = 'ef1bc4a1-d30b-4008-9983-8f4053f5b815', TPL = 'ffc1faf4-e301-4af9-a2ed-3099437314d5';
 async function fixture(fn) {
@@ -78,7 +78,7 @@ test('conta só mensagens recebidas dentro da janela, pela equipe da conversa', 
     if (url.pathname === '/chat/v1/message') {
       assert.equal(url.searchParams.get('CreatedAt.Before'), window.end);
       const id = url.searchParams.get('SessionId');
-      const items = { s1: [{ direction: 'TO_HUB' }, { direction: 'TO_HUB' }, { direction: 'FROM_HUB' }], s2: [{ direction: 'TO_HUB' }], s3: [{ direction: 'TO_HUB' }] }[id];
+      const items = { s1: [{ direction: 'FROM_HUB' }, { direction: 'FROM_HUB' }, { direction: 'TO_HUB' }], s2: [{ direction: 'FROM_HUB' }], s3: [{ direction: 'FROM_HUB' }] }[id];
       return json({ items, hasMorePages: false });
     }
     throw new Error('rota inesperada ' + url);
@@ -108,3 +108,8 @@ test('worker envia o modelo uma vez por horário, pelo canal configurado, e calc
   assert.deepEqual(sends.map(s => s.body.to).sort(), ['5592981572606', '5592984532273']);
   assert.equal(snapshots.length, 1);
 }));
+
+test('busca o telefone do contato pela conversa do webhook', async () => {
+  const fetcher = async url => ({ ok: true, status: 200, json: async () => url.pathname === '/chat/v2/session/s1' ? { contactId: 'c1' } : url.pathname === '/core/v1/contact/c1' ? { phoneNumber: '+55|92984532273' } : null });
+  assert.equal(await sessionPhone('t', 's1', fetcher), '5592984532273');
+});
