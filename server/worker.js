@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { deliver } from './delivery.js';
 import { getIntegration, templateBody, helenaRequest, channels } from './helena.js';
 import { getReportSchedule, reportScheduleDue } from './report.js';
+import { getMsgcount, msgcountDue, msgcountWindow, snapshot, channelNumber } from './msgcount.js';
 export function createWorker(store, providers = {}) {
   const { db, all, get, transaction, parseRow } = store;
   const sendHelena=providers.helena || helenaRequest, sendWebhook=providers.webhook || deliver, listChannels=providers.channels || channels;
@@ -25,6 +26,16 @@ export function createWorker(store, providers = {}) {
       db.prepare('INSERT INTO jobs (id,hook,payload,next,created,workspace_id) VALUES (?,?,?,?,?,?)').run(id, 'report', JSON.stringify(payload), Date.now(), created, workspaceId);
     }
     return schedule.recipients.length;
+  }
+  // Same delivery path as the daily report, but from the configured channel.
+  function enqueueMsgcount(workspaceId, config, slot) {
+    const created = new Date().toISOString();
+    for (const to of config.recipients) {
+      const id = randomUUID();
+      const payload = { id, type: 'report.template', workspaceId, createdAt: created, source: 'folks-calendar', data: { to, templateId: config.templateId, channelId: config.channelId, slot, report: 'msgcount' } };
+      db.prepare('INSERT INTO jobs (id,hook,payload,next,created,workspace_id) VALUES (?,?,?,?,?,?)').run(id, 'msgcount', JSON.stringify(payload), Date.now(), created, workspaceId);
+    }
+    return config.recipients.length;
   }
   let running = false;
   async function tick() {
@@ -63,13 +74,25 @@ export function createWorker(store, providers = {}) {
           if (db.prepare('INSERT OR IGNORE INTO fired (key) VALUES (?)').run(`${due.key}:${row.workspace_id}`).changes && due.send) enqueueReport(row.workspace_id, schedule, due.localDate);
         });
       }
+      for (const row of db.prepare('SELECT workspace_id FROM msgcount_schedules').all()) {
+        const config = getMsgcount(db, row.workspace_id);
+        if (!config.enabled || !config.recipients.length || !getIntegration(db, row.workspace_id)) continue;
+        for (const slot of msgcountDue(config, new Date(now))) {
+          let fresh = false;
+          transaction(() => {
+            if (db.prepare('INSERT OR IGNORE INTO fired (key) VALUES (?)').run(`msgcount:${slot}:${row.workspace_id}`).changes) { enqueueMsgcount(row.workspace_id, config, slot); fresh = true; }
+          });
+          // Count while the template is on its way, so the click answers at once.
+          if (fresh) (providers.snapshot || snapshot)(db, row.workspace_id, msgcountWindow(config.hours, new Date(slot))).catch(error => console.error('HELENA msgcount snapshot:', error.message));
+        }
+      }
       for (const job of db.prepare("SELECT * FROM jobs WHERE status='pending' AND next<=? ORDER BY next LIMIT 10").all(now)) {
         const payload=JSON.parse(job.payload);
         if (payload.type === 'report.template') {
           const config = getIntegration(db, job.workspace_id);
           if (!config) { db.prepare("UPDATE jobs SET status='cancelled' WHERE id=?").run(job.id); continue; }
           try {
-            const from = (await listChannels(config.token))[0]?.number;
+            const from = payload.data.channelId ? await channelNumber(config.token, payload.data.channelId, listChannels) : (await listChannels(config.token))[0]?.number;
             if (!from) throw new Error('Nenhum canal oficial ativo do HELENA foi encontrado para enviar o relatório.');
             db.prepare("UPDATE jobs SET status='sending',attempts=attempts+1,integration_revision=? WHERE id=?").run(config.revision, job.id);
             const result = await sendHelena(config.token, 'send/template', { from, to: payload.data.to, templateId: payload.data.templateId, parameters: {}, senderId: job.id });
@@ -114,5 +137,5 @@ export function createWorker(store, providers = {}) {
       }
     } finally { running = false; }
   }
-  return { enqueue, enqueueReport, tick };
+  return { enqueue, enqueueReport, enqueueMsgcount, tick };
 }

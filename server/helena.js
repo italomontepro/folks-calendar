@@ -120,7 +120,17 @@ export function installHelena(app, store, base, admin) {
     const phone=(find(['phonenumber','phonenumberformatted','phone','to','contactphonenumber'])||'').replace(/[^0-9]/g,'');
     if (!sessionId) return;
     const workspaceId=integration.workspace_id;
-    if (isReportButton(body)) {
+    const { getMsgcount, samePhone, sendMsgcount } = await import('./msgcount.js');
+    const msgcount = getMsgcount(db, workspaceId);
+    // Only the configured recipients get the count; the button text alone is
+    // not enough, since any customer of the account could type it.
+    if (msgcount.channelId && msgcount.recipients.some(n => samePhone(n, phone)) && isReportButton(body, msgcount.button)) {
+      try { await sendMsgcount(db, workspaceId, { to: phone, sessionId }); }
+      catch (error) { console.error('HELENA msgcount message:', error.message); }
+      return;
+    }
+    const { getReportSchedule } = await import('./report.js');
+    if (isReportButton(body) && getReportSchedule(db, workspaceId).recipients.some(n => samePhone(n, phone))) {
       try {
         const { sendMessageReport } = await import('./report.js');
         await sendMessageReport(db, workspaceId, { to: phone, sessionId });

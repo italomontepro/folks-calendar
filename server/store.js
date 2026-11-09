@@ -101,6 +101,13 @@ export async function openStore(dataDir) {
         PRAGMA user_version=6;`);
     });
   }
+  if (version < 7) {
+    transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS msgcount_schedules (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), body TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS msgcount_snapshots (workspace_id TEXT NOT NULL REFERENCES workspaces(id), window_end TEXT NOT NULL, body TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (workspace_id, window_end));
+        PRAGMA user_version=7;`);
+    });
+  }
   const parseRow = row => row ? { ...JSON.parse(row.body), workspaceId: row.workspace_id } : null;
   const all = (table, workspaceId) => {
     if (!workspaceId) throw new Error('Workspace obrigatório');

@@ -1,6 +1,7 @@
 import React,{useState,useEffect} from 'react';
 import {Copy} from 'lucide-react';
 import GoogleCalendar from './GoogleCalendar';
+import MsgcountReport from './MsgcountReport';
 const triggers={'event.created':'Ao criar evento','event.updated':'Ao atualizar evento','event.deleted':'Ao excluir evento','event.reminder':'Antes do evento','event.started':'No início do evento'};
 const vars={nome:'Nome do cliente',responsavel:'Nome do responsável',titulo:'Título do evento',data:'Data',hora:'Horário',fim:'Horário de término',local:'Local ou link',descricao:'Descrição',email:'E-mail',contato:'ID no CRM',telefone:'WhatsApp do cliente'};
 export default function HelenaAutomations({api,hooks,onRefresh,workspaceId,mode='all',onOpenIntegrations=()=>{const url=new URL(location.href);url.searchParams.set('section','integrations');location.href=url;}}) {
@@ -30,6 +31,7 @@ export default function HelenaAutomations({api,hooks,onRefresh,workspaceId,mode=
    <label className="inline-check"><input type="checkbox" checked={report.enabled} onChange={e=>setReport(r=>({...r,enabled:e.target.checked}))}/>Envio diário ativo</label>
    <div className="form-footer"><button type="button" className="outline" disabled={busy || !report.recipients.length} onClick={()=>act(async()=>{const r=await api('/helena/report/send',{method:'POST'});setNotice(`Modelo enviado agora para ${r.count} número(s). Acompanhe em Histórico de disparos.`);await onRefresh();})}>Enviar agora</button><button className="primary" disabled={busy}>{busy?'Salvando…':'Salvar relatório diário'}</button></div>
   </form>}
+  {activeMode!=='automations'&&connected&&channelList.length>0&&<MsgcountReport api={api} channels={channelList} onRefresh={onRefresh}/>}
   {activeMode==='automations'&&!connected&&<div className="integration-needed"><p>Conecte o HELENA CRM antes de criar regras de mensagem.</p><button className="outline" onClick={onOpenIntegrations}>Abrir integrações</button></div>}
   {activeMode!=='integrations'&&connected&&<><div className="helena-rules">{helenaHooks.map(h=><article className="helena-rule" key={h.id}><div><strong>{h.name}</strong><p>{h.templateName} · {h.recipient==='assignee'?'Responsável':'Cliente'}</p><small>{h.triggers.map(t=>triggers[t]+(t==='event.reminder'?` (${h.reminderMinutes} min)`:'')).join(' · ')}</small></div><span>{h.enabled?'Ativa':'Pausada'}</span><button className="outline" disabled={busy} onClick={()=>{setError('');setEditing({...h});}}>Configurar</button><button className="outline" disabled={busy} onClick={()=>act(async()=>{await api('/hooks/'+h.id,{method:'PUT',body:JSON.stringify({...h,enabled:!h.enabled})});await onRefresh();})}>{h.enabled?'Pausar':'Ativar'}</button></article>)}</div>
    {!editing&&<button className="primary" disabled={busy} onClick={()=>setEditing({kind:'helena',name:'',channelId:channelList[0]?.id || '',templateId:'',parameters:{},recipient:'contact',triggers:['event.created'],reminderMinutes:1440,timezone:'America/Manaus',categories:[],enabled:false,fileIdOrUrl:''})}>Nova regra de mensagem</button>}
