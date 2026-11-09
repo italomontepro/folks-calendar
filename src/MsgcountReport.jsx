@@ -2,7 +2,7 @@ import React,{useState,useEffect} from 'react';
 
 const pad=h=>String(h).padStart(2,'0')+':00';
 
-// Mensagens recebidas por equipe: modelo com botão enviado nos horários
+// Atendimentos por equipe: modelo com botão enviado nos horários
 // configurados; o clique responde com a contagem do período desde o horário anterior.
 export default function MsgcountReport({api,channels,onRefresh}) {
  const [config,setConfig]=useState(null),[recipients,setRecipients]=useState(''),[hours,setHours]=useState(''),[groups,setGroups]=useState(''),[models,setModels]=useState([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
@@ -13,8 +13,8 @@ export default function MsgcountReport({api,channels,onRefresh}) {
  const body=()=>JSON.stringify({...config,recipients,hours:hours.split(/[\s,;]+/).filter(Boolean),groups});
  const saved=c=>{setConfig(c);setRecipients(c.recipients.join('\n'));setHours(c.hours.join(', '));setGroups(c.groups.join('\n'));};
  return <form className="helena-editor helena-report" onSubmit={e=>{e.preventDefault();act(async()=>{const c=await api('/helena/msgcount',{method:'PUT',body:body()});saved(c);setNotice(c.enabled?`Ativo: modelo enviado às ${c.hours.map(pad).join(', ')} (Manaus).`:'Configuração salva. O envio está pausado.');});}}>
-  <h3>Mensagens recebidas por equipe</h3>
-  <p className="form-hint">Nos horários abaixo, o FolkSales envia o modelo escolhido para cada número. Ao clicar em “{config.button}”, a pessoa recebe quantas mensagens de clientes cada equipe recebeu desde o horário anterior, com o total por grupo.</p>
+  <h3>Atendimentos por equipe</h3>
+  <p className="form-hint">Nos horários abaixo, o FolkSales envia o modelo escolhido para cada número. Ao clicar em “{config.button}”, a pessoa recebe quantos atendimentos cada equipe recebeu desde o horário anterior, com o total por grupo.</p>
   {error&&<p className="form-error" role="alert">{error}</p>}{notice&&<p className="success-message" role="status">{notice}</p>}
   <div className="form-row"><label>Canal de WhatsApp<select value={config.channelId} onChange={e=>setConfig(c=>({...c,channelId:e.target.value,templateId:''}))}><option value="">Selecione</option>{channels.map(c=><option key={c.id} value={c.id}>{c.name} · {c.number}</option>)}</select></label>
   <label>Modelo<select value={config.templateId} onChange={e=>setConfig(c=>({...c,templateId:e.target.value}))}><option value="">Selecione</option>{models.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label></div>

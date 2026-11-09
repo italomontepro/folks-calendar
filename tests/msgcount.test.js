@@ -64,28 +64,24 @@ test('agrupa equipes por marca, mostra subtotais e total geral', () => {
   assert.match(text, /\*Total geral: 311\*/); assert.match(text, /FolksBot$/);
 });
 
-test('conta só mensagens recebidas dentro da janela, pela equipe da conversa', async () => {
+test('conta atendimentos iniciados dentro da janela, pela equipe da conversa', async () => {
   const window = { start: '2026-11-09T11:00:00.000Z', end: '2026-11-09T18:00:00.000Z', label: 'x' };
-  const calls = [];
   const fetcher = async url => {
-    calls.push(url.pathname + url.search);
     const json = body => ({ ok: true, status: 200, json: async () => body });
     if (url.pathname === '/core/v2/department') return json([{ id: 'a', name: 'Pacco' }, { id: 'b', name: 'Body Monster - Vieiralves' }]);
     if (url.pathname === '/chat/v2/session') {
-      assert.equal(url.searchParams.get('UpdatedAt.After'), window.start);
-      return json({ items: [{ id: 's1', departmentId: 'a', createdAt: '2026-11-01T00:00:00Z' }, { id: 's2', departmentId: 'b' }, { id: 's3', departmentId: null }, { id: 's4', departmentId: 'a', createdAt: '2026-11-09T19:00:00Z' }], hasMorePages: false });
-    }
-    if (url.pathname === '/chat/v1/message') {
-      assert.equal(url.searchParams.get('CreatedAt.Before'), window.end);
-      const id = url.searchParams.get('SessionId');
-      const items = { s1: [{ direction: 'FROM_HUB' }, { direction: 'FROM_HUB' }, { direction: 'TO_HUB' }], s2: [{ direction: 'FROM_HUB' }], s3: [{ direction: 'FROM_HUB' }] }[id];
-      return json({ items, hasMorePages: false });
+      assert.equal(url.searchParams.get('CreatedAt.After'), window.start);
+      return json({ items: [
+        { id: 's1', departmentId: 'a', createdAt: '2026-11-09T11:00:00Z' }, { id: 's2', departmentId: 'a', createdAt: '2026-11-09T12:00:00Z' },
+        { id: 's3', departmentId: 'b', createdAt: '2026-11-09T17:59:59Z' }, { id: 's4', departmentId: null, createdAt: '2026-11-09T13:00:00Z' },
+        { id: 's5', departmentId: 'a', createdAt: '2026-11-09T18:00:00Z' }, { id: 's6', departmentId: 'b', createdAt: '2026-11-09T10:59:59Z' }
+      ], hasMorePages: false });
     }
     throw new Error('rota inesperada ' + url);
   };
   const data = await collectMsgcount('t', window, fetcher, 1000);
   assert.deepEqual(data.teams, { 'Pacco': 2, 'Body Monster - Vieiralves': 1, 'Sem equipe': 1 });
-  assert.ok(!calls.some(c => c.includes('SessionId=s4')), 'conversa criada depois da janela não é consultada');
+  assert.equal(data.metric, 'sessions');
 });
 
 test('worker calcula a contagem e só depois envia o modelo, uma vez por horário e pelo canal configurado', async () => fixture(async (store, ws) => {

@@ -8,7 +8,6 @@ import { fail } from './security.js';
 
 const ORIGIN = 'https://api.wts.chat';
 const zone = 'America/Manaus';
-const CONCURRENCY = 4;
 const RATE = 6; // requests per second
 
 export const DEFAULT_MSGCOUNT = {
@@ -153,38 +152,33 @@ async function pages(token, path, params, fetcher, pace) {
   throw new Error('A consulta ultrapassou 50.000 registros.');
 }
 
-// Counts customer messages (FROM_HUB; TO_HUB is the team's own replies) created inside the window, per team. The
-// message API has no team filter, so the team is the conversation's current
-// team; a conversation transferred later is counted in its final team.
+// Counts the conversations (atendimentos) started inside the window, per
+// team. The team is the conversation's current team, so a conversation
+// transferred later is counted in its final team.
 export async function collectMsgcount(token, window, fetcher = fetch, perSecond = RATE) {
   const pace = limiter(perSecond);
   const [departments, sessions] = await Promise.all([
     helenaGet(token, '/core/v2/department', {}, fetcher, pace),
-    pages(token, '/chat/v2/session', { 'UpdatedAt.After': window.start }, fetcher, pace)
+    pages(token, '/chat/v2/session', { 'CreatedAt.After': window.start, 'CreatedAt.Before': window.end }, fetcher, pace)
   ]);
   if (!Array.isArray(departments)) throw new Error('O Helena retornou equipes em formato inválido.');
   const names = new Map(departments.map(d => [d.id, d.name]));
-  const received = new Map(departments.map(d => [d.name, 0]));
-  const queue = sessions.filter(s => !s.createdAt || s.createdAt < window.end);
-  async function worker() {
-    while (queue.length) {
-      const session = queue.shift();
-      const messages = await pages(token, '/chat/v1/message', { SessionId: session.id, 'CreatedAt.After': window.start, 'CreatedAt.Before': window.end }, fetcher, pace);
-      const count = messages.filter(m => m.direction === 'FROM_HUB').length;
-      if (!count) continue;
-      const name = names.get(session.departmentId) || 'Sem equipe';
-      received.set(name, (received.get(name) || 0) + count);
-    }
+  const started = new Map(departments.map(d => [d.name, 0]));
+  const start = Date.parse(window.start), end = Date.parse(window.end);
+  for (const session of sessions) {
+    const created = Date.parse(session.createdAt);
+    if (!(created >= start && created < end)) continue;
+    const name = names.get(session.departmentId) || 'Sem equipe';
+    started.set(name, (started.get(name) || 0) + 1);
   }
-  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-  return { window, updatedAt: new Date().toISOString(), direction: 'FROM_HUB', teams: Object.fromEntries(received) };
+  return { window, updatedAt: new Date().toISOString(), metric: 'sessions', teams: Object.fromEntries(started) };
 }
 
 const fold = value => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const number = n => new Intl.NumberFormat('pt-BR').format(n);
 
 export function formatMsgcount(data, groups = DEFAULT_MSGCOUNT.groups) {
-  const lines = ['📊 Mensagens recebidas por equipe', data.window.label, ''];
+  const lines = ['📊 Atendimentos por equipe', data.window.label, ''];
   const teams = Object.entries(data.teams).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
   const used = new Set();
   let total = 0;
@@ -243,8 +237,8 @@ const pending = new Map();
 export function snapshot(db, workspaceId, window, { fetcher } = {}) {
   const row = db.prepare('SELECT body FROM msgcount_snapshots WHERE workspace_id=? AND window_end=?').get(workspaceId, window.end);
   const cached = row && JSON.parse(row.body);
-  // Snapshots without the direction marker counted the team's replies.
-  if (cached?.direction === 'FROM_HUB') return Promise.resolve(cached);
+  // Older snapshots counted messages, not conversations.
+  if (cached?.metric === 'sessions') return Promise.resolve(cached);
   const key = `${workspaceId}|${window.end}`;
   if (pending.has(key)) return pending.get(key);
   const integration = getIntegration(db, workspaceId);
