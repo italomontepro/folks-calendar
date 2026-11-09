@@ -206,7 +206,7 @@ export function formatMsgcount(data, groups = DEFAULT_MSGCOUNT.groups) {
     for (const [name, count] of others) lines.push(`${name}: ${number(count)}`);
     lines.push(`*Total outras: ${number(sum)}*`, '');
   }
-  lines.push(`*Total geral: ${number(total)}*`, '', 'FolkSales');
+  lines.push(`*Total geral: ${number(total)}*`, '', 'FolksBot');
   return lines.join('\n');
 }
 

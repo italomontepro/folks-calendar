@@ -61,7 +61,7 @@ test('agrupa equipes por marca, mostra subtotais e total geral', () => {
   assert.match(text, /\*Total Pacco: 90\*/);
   assert.match(text, /\*Outras equipes\*\nSAC: 3/);
   assert.doesNotMatch(text, /Financeiro/);
-  assert.match(text, /\*Total geral: 311\*/);
+  assert.match(text, /\*Total geral: 311\*/); assert.match(text, /FolksBot$/);
 });
 
 test('conta só mensagens recebidas dentro da janela, pela equipe da conversa', async () => {
