@@ -17,7 +17,9 @@ const { enqueue, enqueueReport, enqueueMsgcount, tick } = createWorker(store);
 const app = express();
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY_HOPS) app.set('trust proxy',Number(process.env.TRUST_PROXY_HOPS));
-app.use(express.json({limit:'64kb'}));
+// The HELENA webhook parses its own body (any content type, larger payloads).
+const json=express.json({limit:'64kb'});
+app.use((req,res,next)=>req.path.startsWith('/api/helena/webhook/')?next():json(req,res,next));
 app.use((req,res,next) => {
   const requestedWorkspace = typeof req.query.workspace === 'string' ? req.query.workspace : '';
   const workspace = db.prepare('SELECT origins FROM workspaces WHERE id=?').get(requestedWorkspace);

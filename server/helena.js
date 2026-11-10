@@ -1,3 +1,4 @@
+import express from 'express';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { fail } from './security.js';
 
@@ -105,22 +106,30 @@ export function installHelena(app, store, base, admin) {
   const {db,transaction}=store;
   const integration = workspaceId => {const value=getIntegration(db,workspaceId);if(!value)fail(400,'Conecte o HELENA primeiro.');return value;};
   const integrationWebhookUrl = (req, config) => config?.webhook_secret ? `${(process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/,'')}/api/helena/webhook/${config.webhook_secret}` : null;
-  app.post('/api/helena/webhook/:secret', async (req,res) => {
+  const webhookTrace=[];
+  app.get(base+'/helena/webhook-trace',admin,(req,res)=>res.json(webhookTrace));
+  // HELENA's content type is not guaranteed to be application/json.
+  app.post('/api/helena/webhook/:secret', express.json({limit:'512kb',type:()=>true}), async (req,res) => {
     const integration=db.prepare('SELECT * FROM integrations WHERE webhook_secret=?').get(req.params.secret);
     if (!integration) return res.status(404).json({error:'Webhook não encontrado.'});
     res.json({ok:true});
-    const body=req.body || {};
-    if (body.eventType !== 'MESSAGE_RECEIVED') return;
+    const body=req.body && typeof req.body==='object' ? req.body : {};
+    // Shape-only trace (no message content) of recent deliveries, for support.
+    const trace={at:new Date().toISOString(),contentType:req.get('content-type')||'',eventType:body.eventType||null,keys:Object.keys(body).slice(0,20),contentKeys:Object.keys(body.content||{}).slice(0,40),direction:(body.content||{}).direction||null};
+    const note=outcome=>{trace.outcome=outcome;webhookTrace.unshift(trace);webhookTrace.length=Math.min(webhookTrace.length,100);};
+    if (body.eventType !== 'MESSAGE_RECEIVED') return note('ignored_event');
     const strings=[];
     const walk=(value,key='')=>{if(value && typeof value==='object')for(const [k,v] of Object.entries(value))walk(v,k);else if(typeof value==='string')strings.push({key,value});};
     walk(body.content || body);
     const text=strings.map(x=>x.value).join(' ').toLowerCase();
     const find=(names, value=body.content || body, parent='')=>{if(!value || typeof value!=='object')return null;for(const [k,v] of Object.entries(value)){const lower=k.toLowerCase();if(names.includes(lower) && typeof v==='string')return v;if(lower==='id' && /session|conversation|atendimento/.test(parent) && typeof v==='string')return v;if(v&&typeof v==='object'){const found=find(names,v,lower);if(found)return found;}}return null;};
     const sessionId=find(['sessionid','session_id','session','conversationid','conversation']);
-    let phone=(find(['phonenumber','phonenumberformatted','phone','to','contactphonenumber'])||'').replace(/[^0-9]/g,'');
-    if (!sessionId) return;
+    // The payload's own number fields may hold the channel's number (`to`),
+    // so the contact's phone always comes from the conversation.
+    let phone='';
+    if (!sessionId) return note('no_session');
     // The team's own messages are never a click or a customer reply.
-    if ((body.content || {}).direction === 'TO_HUB') return;
+    if ((body.content || {}).direction === 'TO_HUB') return note('team_message');
     const workspaceId=integration.workspace_id;
     const { getMsgcount, samePhone, sendMsgcount, sessionPhone } = await import('./msgcount.js');
     const msgcount = getMsgcount(db, workspaceId);
@@ -128,24 +137,29 @@ export function installHelena(app, store, base, admin) {
     // HELENA delivers the message without the contact's phone; look it up only
     // for button clicks or when this workspace has events to match.
     const hasEvents = () => store.all('events',workspaceId).some(event=>event.phone && Date.parse(event.start)>Date.now()-48*3600000);
-    if (!phone && (msgcountClick || reportClick || hasEvents())) {
+    trace.click=msgcountClick||reportClick;
+    if (msgcountClick || reportClick || hasEvents()) {
       try { phone = await sessionPhone(integration.token, sessionId); }
-      catch (error) { console.error('HELENA contact phone:', error.message); return; }
+      catch (error) { console.error('HELENA contact phone:', error.message); return note('phone_error: '+error.message); }
     }
+    trace.phoneEnd=phone.slice(-4);
     // Only the configured recipients get the count; the button text alone is
     // not enough, since any customer of the account could type it.
     if (msgcountClick && msgcount.recipients.some(n => samePhone(n, phone))) {
-      try { await sendMsgcount(db, workspaceId, { to: phone, sessionId }); }
-      catch (error) { console.error('HELENA msgcount message:', error.message); }
+      try { await sendMsgcount(db, workspaceId, { to: phone, sessionId }); note('msgcount_sent'); }
+      catch (error) { console.error('HELENA msgcount message:', error.message); note('msgcount_error: '+error.message); }
       return;
     }
+    if (msgcountClick) return note('msgcount_not_recipient');
     const { getReportSchedule } = await import('./report.js');
     if (reportClick && getReportSchedule(db, workspaceId).recipients.some(n => samePhone(n, phone))) {
       try {
         const { sendMessageReport } = await import('./report.js');
         await sendMessageReport(db, workspaceId, { to: phone, sessionId });
+        note('report_sent');
       } catch (error) {
         console.error('HELENA report message:', error.message);
+        note('report_error: '+error.message);
       }
       return;
     }
@@ -156,7 +170,8 @@ export function installHelena(app, store, base, admin) {
     try {
       // Only contacts with an upcoming event in this workspace are handled; the
       // account webhook also delivers every other customer conversation.
-      if (!events[0]) return;
+      if (!events[0]) return note('no_event');
+      note('event');
       if (/\b(remarcar|reagendar|alterar|mudar)\b/.test(text)) {
         await helenaPut(integration.token,`session/${encodeURIComponent(sessionId)}/transfer`,{type:'DEPARTMENT',newDepartmentId:integration.reschedule_department_id || '1f08f5c8-c4ae-4730-b820-871e7d8af275'});
       } else if (/\b(confirmar|confirmado|confirmo|sim)\b/.test(text) && events[0]) {
