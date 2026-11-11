@@ -19,9 +19,11 @@ test('cada envio cobre o período desde o horário anterior (7h, 14h, 22h em Man
   let w = msgcountWindow(hours, new Date('2026-11-09T11:30:00Z'));
   assert.equal(w.start, '2026-11-09T02:00:00.000Z'); assert.equal(w.end, '2026-11-09T11:00:00.000Z');
   assert.equal(w.label, '08/11 22:00 → 09/11 07:00');
+  assert.equal(w.dayStart, '2026-11-09T04:00:00.000Z'); assert.equal(w.dayLabel, '00:00–07:00');
   w = msgcountWindow(hours, new Date('2026-11-09T18:05:00Z')); // 14:05
   assert.equal(w.start, '2026-11-09T11:00:00.000Z'); assert.equal(w.end, '2026-11-09T18:00:00.000Z');
   assert.equal(w.label, '09/11 · 07:00–14:00');
+  assert.equal(w.dayStart, '2026-11-09T04:00:00.000Z'); assert.equal(w.dayLabel, '00:00–14:00');
   w = msgcountWindow(hours, new Date('2026-11-10T03:00:00Z')); // 09/11 23:00
   assert.equal(w.start, '2026-11-09T18:00:00.000Z'); assert.equal(w.end, '2026-11-10T02:00:00.000Z');
   w = msgcountWindow(hours, new Date('2026-11-10T09:00:00Z')); // 10/11 05:00 → ainda a janela das 22h
@@ -112,4 +114,24 @@ test('worker calcula a contagem e só depois envia o modelo, uma vez por horári
 test('busca o telefone do contato pela conversa do webhook', async () => {
   const fetcher = async url => ({ ok: true, status: 200, json: async () => url.pathname === '/chat/v2/session/s1' ? { contactId: 'c1' } : url.pathname === '/core/v1/contact/c1' ? { phoneNumber: '+55|92984532273' } : null });
   assert.equal(await sessionPhone('t', 's1', fetcher), '5592984532273');
+});
+
+test('mostra o acumulado do dia ao lado de cada contagem', async () => {
+  const window = { start: '2026-11-09T11:00:00.000Z', end: '2026-11-09T18:00:00.000Z', dayStart: '2026-11-09T04:00:00.000Z', label: '09/11 · 07:00–14:00', dayLabel: '00:00–14:00' };
+  const fetcher = async url => {
+    const json = body => ({ ok: true, status: 200, json: async () => body });
+    if (url.pathname === '/core/v2/department') return json([{ id: 'a', name: 'Pacco' }, { id: 'b', name: 'Body Monster - Vieiralves' }]);
+    assert.equal(url.searchParams.get('CreatedAt.After'), window.dayStart);
+    return json({ items: [
+      { departmentId: 'a', createdAt: '2026-11-09T05:00:00Z' }, { departmentId: 'a', createdAt: '2026-11-09T12:00:00Z' },
+      { departmentId: 'b', createdAt: '2026-11-09T10:00:00Z' }, { departmentId: 'b', createdAt: '2026-11-09T03:59:59Z' }
+    ], hasMorePages: false });
+  };
+  const data = await collectMsgcount('t', window, fetcher, 1000);
+  assert.deepEqual(data.teams, { 'Pacco': 1, 'Body Monster - Vieiralves': 0 });
+  assert.deepEqual(data.dayTeams, { 'Pacco': 2, 'Body Monster - Vieiralves': 1 });
+  const text = formatMsgcount(data, ['Body Monster', 'Pacco']);
+  assert.match(text, /09\/11 · 07:00–14:00 \| dia 00:00–14:00/);
+  assert.match(text, /Body Monster - Vieiralves: 0 \| dia 1\n\*Total Body Monster: 0 \| dia 1\*/);
+  assert.match(text, /\*Total geral: 1 \| dia 3\*/);
 });

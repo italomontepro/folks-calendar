@@ -95,7 +95,12 @@ export function msgcountWindow(hours, now = new Date()) {
   const label = dayLabel(start) === dayLabel(end)
     ? `${dayLabel(end)} · ${hourLabel(start)}–${hourLabel(end)}`
     : `${dayLabel(start)} ${hourLabel(start)} → ${dayLabel(end)} ${hourLabel(end)}`;
-  return { start: start.toISOString(), end: end.toISOString(), label, key: `${end.toISOString()}` };
+  // Day so far: local midnight of the day the window ends in (a slot at 00:00
+  // closes the previous day, so it covers that whole day).
+  const d = localParts(new Date(end.getTime() - 1));
+  const dayStart = manaus(d.year, d.month, d.day, 0);
+  const dayLabelText = `${hourLabel(dayStart)}–${endHour === 0 ? '24:00' : hourLabel(end)}`;
+  return { start: start.toISOString(), end: end.toISOString(), label, dayStart: dayStart.toISOString(), dayLabel: dayLabelText, key: `${end.toISOString()}` };
 }
 
 // Slots that came due in the last two hours and were not yet fired. A slot
@@ -157,50 +162,55 @@ async function pages(token, path, params, fetcher, pace) {
 // transferred later is counted in its final team.
 export async function collectMsgcount(token, window, fetcher = fetch, perSecond = RATE) {
   const pace = limiter(perSecond);
+  // One query covers both the window and the day so far.
+  const from = window.dayStart && window.dayStart < window.start ? window.dayStart : window.start;
   const [departments, sessions] = await Promise.all([
     helenaGet(token, '/core/v2/department', {}, fetcher, pace),
-    pages(token, '/chat/v2/session', { 'CreatedAt.After': window.start, 'CreatedAt.Before': window.end }, fetcher, pace)
+    pages(token, '/chat/v2/session', { 'CreatedAt.After': from, 'CreatedAt.Before': window.end }, fetcher, pace)
   ]);
   if (!Array.isArray(departments)) throw new Error('O Helena retornou equipes em formato inválido.');
   const names = new Map(departments.map(d => [d.id, d.name]));
-  const started = new Map(departments.map(d => [d.name, 0]));
-  const start = Date.parse(window.start), end = Date.parse(window.end);
+  const started = new Map(departments.map(d => [d.name, 0])), day = new Map(started);
+  const start = Date.parse(window.start), end = Date.parse(window.end), dayStart = Date.parse(window.dayStart || window.start);
   for (const session of sessions) {
     const created = Date.parse(session.createdAt);
-    if (!(created >= start && created < end)) continue;
+    if (!(created < end)) continue;
     const name = names.get(session.departmentId) || 'Sem equipe';
-    started.set(name, (started.get(name) || 0) + 1);
+    if (created >= start) started.set(name, (started.get(name) || 0) + 1);
+    if (created >= dayStart) day.set(name, (day.get(name) || 0) + 1);
   }
-  return { window, updatedAt: new Date().toISOString(), metric: 'sessions', teams: Object.fromEntries(started) };
+  return { window, updatedAt: new Date().toISOString(), metric: 'sessions', teams: Object.fromEntries(started), ...(window.dayStart ? { dayTeams: Object.fromEntries(day) } : {}) };
 }
 
 const fold = value => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const number = n => new Intl.NumberFormat('pt-BR').format(n);
 
 export function formatMsgcount(data, groups = DEFAULT_MSGCOUNT.groups) {
-  const lines = ['📊 Atendimentos por equipe', data.window.label, ''];
-  const teams = Object.entries(data.teams).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
+  // With the day so far, each count reads "window | day".
+  const day = data.dayTeams;
+  const show = (n, d) => day ? `${number(n)} | dia ${number(d)}` : number(n);
+  const header = day ? `${data.window.label} | dia ${data.window.dayLabel}` : data.window.label;
+  const lines = ['📊 Atendimentos por equipe', header, ''];
+  const names = [...new Set([...Object.keys(data.teams), ...Object.keys(day || {})])].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const teams = names.map(name => [name, data.teams[name] || 0, day?.[name] || 0]);
   const used = new Set();
-  let total = 0;
+  let total = 0, totalDay = 0;
+  const block = (title, members, totalLabel) => {
+    const sum = members.reduce((acc, [, n]) => acc + n, 0), sumDay = members.reduce((acc, [, , d]) => acc + d, 0);
+    total += sum; totalDay += sumDay;
+    lines.push(`*${title}*`);
+    for (const [name, n, d] of members) lines.push(`${name}: ${show(n, d)}`);
+    lines.push(`*${totalLabel}: ${show(sum, sumDay)}*`, '');
+  };
   for (const group of groups) {
     const members = teams.filter(([name]) => fold(name).includes(fold(group)));
     if (!members.length) continue;
     members.forEach(([name]) => used.add(name));
-    const sum = members.reduce((acc, [, count]) => acc + count, 0);
-    total += sum;
-    lines.push(`*${group}*`);
-    for (const [name, count] of members) lines.push(`${name}: ${number(count)}`);
-    lines.push(`*Total ${group}: ${number(sum)}*`, '');
+    block(group, members, `Total ${group}`);
   }
-  const others = teams.filter(([name, count]) => !used.has(name) && count > 0);
-  if (others.length) {
-    const sum = others.reduce((acc, [, count]) => acc + count, 0);
-    total += sum;
-    lines.push('*Outras equipes*');
-    for (const [name, count] of others) lines.push(`${name}: ${number(count)}`);
-    lines.push(`*Total outras: ${number(sum)}*`, '');
-  }
-  lines.push(`*Total geral: ${number(total)}*`, '', 'FolksBot');
+  const others = teams.filter(([name, n, d]) => !used.has(name) && (n > 0 || d > 0));
+  if (others.length) block('Outras equipes', others, 'Total outras');
+  lines.push(`*Total geral: ${show(total, totalDay)}*`, '', 'FolksBot');
   return lines.join('\n');
 }
 
@@ -238,7 +248,7 @@ export function snapshot(db, workspaceId, window, { fetcher } = {}) {
   const row = db.prepare('SELECT body FROM msgcount_snapshots WHERE workspace_id=? AND window_end=?').get(workspaceId, window.end);
   const cached = row && JSON.parse(row.body);
   // Older snapshots counted messages, not conversations.
-  if (cached?.metric === 'sessions') return Promise.resolve(cached);
+  if (cached?.metric === 'sessions' && (cached.dayTeams || !window.dayStart)) return Promise.resolve(cached);
   const key = `${workspaceId}|${window.end}`;
   if (pending.has(key)) return pending.get(key);
   const integration = getIntegration(db, workspaceId);
